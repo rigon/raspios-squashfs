@@ -2,6 +2,8 @@
 
 WORKDIR="/tmp/raspios-squashfs-build"
 
+set -e
+
 # Check if exactly one argument is provided
 if [ "$#" -ne 1 ]; then
     echo "Error: You must supply the source image file."
@@ -25,30 +27,41 @@ xz -c -d "$IMAGE" > "$WORKDIR/$NAME.img"
 echo "Detecting partions in $WORKDIR/$NAME.img"
 LOOP_DEVICE=$(losetup -f --partscan --show "$WORKDIR/$NAME.img")
 
-OUTDIR="$PWD"
-cd "$WORKDIR/"
-
 echo "Mounting partitions using device: $LOOP_DEVICE"
-mkdir output/ rootfs/ bootfs/
-mount "${LOOP_DEVICE}p1" bootfs/
-mount "${LOOP_DEVICE}p2" rootfs/
+mkdir "$WORKDIR/rootfs/"
+mkdir "$WORKDIR/bootfs/"
+mount "${LOOP_DEVICE}p1" "$WORKDIR/bootfs/"
+mount "${LOOP_DEVICE}p2" "$WORKDIR/rootfs/"
 
-echo "Copying boot files..."
-cp -Rv bootfs/* output/
+touch "$WORKDIR/rootfs/qemu-aarch64-static"
+mount --bind /usr/bin/qemu-aarch64-static "$WORKDIR/rootfs/qemu-aarch64-static"
+mkdir "$WORKDIR/rootfs/chroot"
+mount --bind chroot/ "$WORKDIR/rootfs/chroot"
 
-echo "Creating squashfs of root..."
-mksquashfs "rootfs/" "output/$NAME.squashfs" -comp xz
+echo "Chroot into rootfs..."
+chroot "$WORKDIR/rootfs/" /qemu-aarch64-static /bin/bash -c /chroot/run.sh
+
+umount "$WORKDIR/rootfs/qemu-aarch64-static"
+rm "$WORKDIR/rootfs/qemu-aarch64-static"
+umount "$WORKDIR/rootfs/chroot"
+rmdir "$WORKDIR/rootfs/chroot"
+
+echo "Creating output files..."
+mkdir "$WORKDIR/output/"
+mksquashfs "$WORKDIR/rootfs/" "$WORKDIR/output/$NAME.squashfs" -comp xz -Xbcj arm
+cp -Rv "$WORKDIR/bootfs/"* "$WORKDIR/output/"
 
 echo "Creating output ZIP archive $NAME.zip"
-pushd output/
+OUTDIR="$PWD"
+pushd "$WORKDIR/output/"
 zip -r "$OUTDIR/$NAME.zip" .
 popd
 
-# echo "Cleanning up..."
-umount bootfs/
-umount rootfs/
+echo "Cleanning up..."
+umount "$WORKDIR/bootfs/"
+umount "$WORKDIR/rootfs/"
 losetup -d "${LOOP_DEVICE}"
-rm -rf output/*
-rmdir bootfs/ rootfs/ output/
-rm "$NAME.img"
+rm "$WORKDIR/$NAME.img"
+rm -rf "$WORKDIR/output/"*
+rmdir "$WORKDIR/bootfs/" "$WORKDIR/rootfs/" "$WORKDIR/output/"
 rmdir "$WORKDIR/"
