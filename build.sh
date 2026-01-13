@@ -5,11 +5,15 @@ WORKDIR="/tmp/raspios-squashfs-build"
 set -e
 
 # Check if exactly one argument is provided
-if [ "$#" -ne 1 ]; then
+if [ "$#" -lt 1 ]; then
     echo "Error: You must supply the source image file."
     exit 1
 fi
 IMAGE="$1"
+
+# Shift the first argument out
+shift
+PARAMS_RUN_SCRIPT="$@"
 
 # Check for root access
 if [ "$EUID" -ne 0 ]; then
@@ -39,7 +43,7 @@ mkdir "$WORKDIR/rootfs/chroot"
 mount --bind chroot/ "$WORKDIR/rootfs/chroot"
 
 echo "Chroot into rootfs..."
-chroot "$WORKDIR/rootfs/" /qemu-aarch64-static /bin/bash -c /chroot/run.sh
+chroot "$WORKDIR/rootfs/" /qemu-aarch64-static /bin/bash -c /chroot/run.sh $PARAMS_RUN_SCRIPT
 
 umount "$WORKDIR/rootfs/qemu-aarch64-static"
 rm "$WORKDIR/rootfs/qemu-aarch64-static"
