@@ -24,6 +24,21 @@ fi
 NAME=$(basename $IMAGE .img.xz)
 echo "Building $NAME"
 
+# Clean possible previous dirty state
+if [ -d "$WORKDIR" ]; then
+    echo "Cleaning up previous dirty state in $WORKDIR..."
+    umount -lf "$WORKDIR/rootfs/proc" || true
+    umount -lf "$WORKDIR/rootfs/sys" || true
+    umount -lf "$WORKDIR/rootfs/dev/pts" || true
+    umount -lf "$WORKDIR/rootfs/dev" || true
+    umount "$WORKDIR/rootfs/qemu-aarch64-static" 2>/dev/null || true
+    umount "$WORKDIR/rootfs/chroot" 2>/dev/null || true
+    umount "$WORKDIR/rootfs/boot/firmware/" 2>/dev/null || true
+    umount "$WORKDIR/rootfs/" 2>/dev/null || true
+    losetup -l -n -O NAME,BACK-FILE 2>/dev/null | awk -v d="$WORKDIR" '$2 ~ d {print $1}' | xargs -r losetup -d
+    rm -rf "$WORKDIR"
+fi
+
 mkdir -p "$WORKDIR/"
 echo "Extracting image file $IMAGE"
 xz -c -d "$IMAGE" > "$WORKDIR/$NAME.img"
