@@ -4,6 +4,33 @@ WORKDIR="/tmp/raspios-squashfs-build"
 
 set -e
 
+# Unmount everything bind/virtual-mounted inside chroot
+unmount_chroot() {
+    umount -lf "$WORKDIR/rootfs/proc" 2>/dev/null || true
+    umount -lf "$WORKDIR/rootfs/sys" 2>/dev/null || true
+    umount -lf "$WORKDIR/rootfs/dev/pts" 2>/dev/null || true
+    umount -lf "$WORKDIR/rootfs/dev" 2>/dev/null || true
+    umount "$WORKDIR/rootfs/boot/firmware/" 2>/dev/null || true
+    umount "$WORKDIR/rootfs/qemu-aarch64-static" 2>/dev/null || true
+    rm "$WORKDIR/rootfs/qemu-aarch64-static" || true
+    umount "$WORKDIR/rootfs/chroot" 2>/dev/null || true
+    rmdir "$WORKDIR/rootfs/chroot" || true
+}
+
+# Unmount rootfs
+unmount_rootfs() {
+    umount "$WORKDIR/rootfs/" 2>/dev/null || true
+    losetup -l -n -O NAME,BACK-FILE 2>/dev/null | awk -v d="$WORKDIR" '$2 ~ d {print $1}' | xargs -r losetup -d
+    rm -rf "$WORKDIR"
+}
+
+# Cleanup on errors
+cleanup_all() {
+    unmount_chroot
+    unmount_rootfs
+}
+trap cleanup_all ERR INT TERM
+
 # Check if exactly one argument is provided
 if [ "$#" -lt 1 ]; then
     echo "Error: You must supply the source image file."
@@ -27,16 +54,7 @@ echo "Building $NAME"
 # Clean possible previous dirty state
 if [ -d "$WORKDIR" ]; then
     echo "Cleaning up previous dirty state in $WORKDIR..."
-    umount -lf "$WORKDIR/rootfs/proc" || true
-    umount -lf "$WORKDIR/rootfs/sys" || true
-    umount -lf "$WORKDIR/rootfs/dev/pts" || true
-    umount -lf "$WORKDIR/rootfs/dev" || true
-    umount "$WORKDIR/rootfs/qemu-aarch64-static" 2>/dev/null || true
-    umount "$WORKDIR/rootfs/chroot" 2>/dev/null || true
-    umount "$WORKDIR/rootfs/boot/firmware/" 2>/dev/null || true
-    umount "$WORKDIR/rootfs/" 2>/dev/null || true
-    losetup -l -n -O NAME,BACK-FILE 2>/dev/null | awk -v d="$WORKDIR" '$2 ~ d {print $1}' | xargs -r losetup -d
-    rm -rf "$WORKDIR"
+    cleanup_all
 fi
 
 mkdir -p "$WORKDIR/"
@@ -69,20 +87,12 @@ echo "Chroot into rootfs..."
 chroot "$WORKDIR/rootfs/" /qemu-aarch64-static /bin/bash -c /chroot/run.sh "$PARAMS_RUN_SCRIPT"
 
 echo "Creating output files..."
-umount -lf "$WORKDIR/rootfs/proc"
-umount -lf "$WORKDIR/rootfs/sys"
-umount -lf "$WORKDIR/rootfs/dev/pts"
-umount -lf "$WORKDIR/rootfs/dev"
-umount "$WORKDIR/rootfs/qemu-aarch64-static"
-rm "$WORKDIR/rootfs/qemu-aarch64-static"
-umount "$WORKDIR/rootfs/chroot"
-rmdir "$WORKDIR/rootfs/chroot"
-
 mkdir "$WORKDIR/output/"
 cp -Rv "$WORKDIR/rootfs/boot/firmware/"* "$WORKDIR/output/"
-umount "$WORKDIR/rootfs/boot/firmware/"
+
+unmount_chroot
+
 mksquashfs "$WORKDIR/rootfs/" "$WORKDIR/output/$NAME.squashfs" -comp xz -Xbcj arm
-umount "$WORKDIR/rootfs/"
 
 cat > "$WORKDIR/output/cmdline.txt" << EOF
 console=serial0,115200 console=tty1 boot=live live-media-path=/ live-image=$NAME.squashfs
@@ -94,9 +104,5 @@ pushd "$WORKDIR/output/"
 zip -r "$OUTDIR/$NAME.zip" .
 popd
 
-echo "Cleanning up..."
-losetup -d "${LOOP_DEVICE}"
-rm "$WORKDIR/$NAME.img"
-rm -rf "$WORKDIR/output/"*
-rmdir "$WORKDIR/rootfs/" "$WORKDIR/output/"
-rmdir "$WORKDIR/"
+echo "Cleaning up..."
+unmount_rootfs
