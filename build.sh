@@ -7,6 +7,38 @@ EXTRA_SIZE="${2:-2G}"
 
 set -e
 
+# Ensure all required host commands are available
+REQUIRED_CMDS="xz truncate parted losetup e2fsck resize2fs mksquashfs zip qemu-aarch64-static"
+for cmd in $REQUIRED_CMDS; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        echo "Error: missing required command: $cmd"
+        exit 1
+    fi
+done
+
+# Check if exactly one argument is provided
+if [ "$#" -lt 1 ]; then
+    echo "Error: You must supply the source image file."
+    exit 1
+fi
+IMAGE="$1"
+
+# Validate the source image
+if [ ! -f "$IMAGE" ]; then
+    echo "Error: Source image '$IMAGE' not found."
+    exit 1
+fi
+if [[ "$IMAGE" != *.img.xz ]]; then
+    echo "Error: Source image '$IMAGE' must be a .img.xz file."
+    exit 1
+fi
+
+# Check for root access
+if [ "$EUID" -ne 0 ]; then
+    echo "This script requires root access. Please run as root or use sudo."
+    exit 1
+fi
+
 # Script executed inside the chroot (shipped in via declare -f below)
 run_in_chroot() {
     /bin/bash
@@ -59,29 +91,6 @@ unmount_rootfs() {
     rm -rf "$WORKDIR"
 }
 
-
-# Check if exactly one argument is provided
-if [ "$#" -lt 1 ]; then
-    echo "Error: You must supply the source image file."
-    exit 1
-fi
-IMAGE="$1"
-
-# Validate the source image
-if [ ! -f "$IMAGE" ]; then
-    echo "Error: Source image '$IMAGE' not found."
-    exit 1
-fi
-if [[ "$IMAGE" != *.img.xz ]]; then
-    echo "Error: Source image '$IMAGE' must be a .img.xz file."
-    exit 1
-fi
-
-# Check for root access
-if [ "$EUID" -ne 0 ]; then
-    echo "This script requires root access. Please run as root or use sudo."
-    exit 1
-fi
 
 NAME=$(basename "$IMAGE" .img.xz)
 echo "Building $NAME"
