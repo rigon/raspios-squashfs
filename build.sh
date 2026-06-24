@@ -22,12 +22,6 @@ unmount_rootfs() {
     rm -rf "$WORKDIR"
 }
 
-# Cleanup on errors
-cleanup_all() {
-    unmount_chroot
-    unmount_rootfs
-}
-trap cleanup_all ERR INT TERM
 
 # Check if exactly one argument is provided
 if [ "$#" -lt 1 ]; then
@@ -36,9 +30,15 @@ if [ "$#" -lt 1 ]; then
 fi
 IMAGE="$1"
 
-# Shift the first argument out
-shift
-PARAMS_RUN_SCRIPT="$@"
+# Validate the source image
+if [ ! -f "$IMAGE" ]; then
+    echo "Error: Source image '$IMAGE' not found."
+    exit 1
+fi
+if [[ "$IMAGE" != *.img.xz ]]; then
+    echo "Error: Source image '$IMAGE' must be a .img.xz file."
+    exit 1
+fi
 
 # Check for root access
 if [ "$EUID" -ne 0 ]; then
@@ -52,8 +52,17 @@ echo "Building $NAME"
 # Clean possible previous dirty state
 if [ -d "$WORKDIR" ]; then
     echo "Cleaning up previous dirty state in $WORKDIR..."
-    cleanup_all
+    unmount_chroot
+    unmount_rootfs
 fi
+
+# Cleanup on errors
+cleanup_on_error() {
+    unmount_chroot
+    unmount_rootfs
+    exit 1
+}
+trap cleanup_on_error ERR INT TERM
 
 mkdir -p "$WORKDIR/"
 echo "Extracting image file $IMAGE"
@@ -86,9 +95,7 @@ chroot "$WORKDIR/rootfs/" /qemu-aarch64-static /bin/bash -c "$(cat run.sh)"
 echo "Creating output files..."
 mkdir "$WORKDIR/output/"
 cp -Rv "$WORKDIR/rootfs/boot/firmware/"* "$WORKDIR/output/"
-
 unmount_chroot
-
 mksquashfs "$WORKDIR/rootfs/" "$WORKDIR/output/$NAME.squashfs" -comp xz -Xbcj arm
 
 cat > "$WORKDIR/output/cmdline.txt" << EOF
@@ -97,6 +104,7 @@ EOF
 
 echo "Creating output ZIP archive $NAME.zip"
 OUTDIR="$PWD"
+rm -f "$OUTDIR/$NAME.zip"
 pushd "$WORKDIR/output/"
 zip -r "$OUTDIR/$NAME.zip" .
 popd
