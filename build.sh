@@ -2,6 +2,9 @@
 
 WORKDIR="/tmp/raspios-squashfs-build"
 
+# Grow rootfs partition by (optional arg, e.g. 2G, 512M)
+EXTRA_SIZE="${2:-2G}"
+
 set -e
 
 # Unmount everything bind/virtual-mounted inside chroot
@@ -67,7 +70,7 @@ trap cleanup_on_error ERR INT TERM
 mkdir -p "$WORKDIR/"
 echo "Extracting image file $IMAGE"
 xz -c -d "$IMAGE" > "$WORKDIR/$NAME.img"
-truncate -s +2G "$WORKDIR/$NAME.img"
+truncate -s "+$EXTRA_SIZE" "$WORKDIR/$NAME.img"
 parted -s "$WORKDIR/$NAME.img" resizepart 2 100%
 
 echo "Detecting partions in $WORKDIR/$NAME.img"
