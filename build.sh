@@ -42,11 +42,15 @@ fi
 mkdir -p "$WORKDIR/"
 echo "Extracting image file $IMAGE"
 xz -c -d "$IMAGE" > "$WORKDIR/$NAME.img"
+truncate -s +2G "$WORKDIR/$NAME.img"
+parted -s "$WORKDIR/$NAME.img" resizepart 2 100%
 
 echo "Detecting partions in $WORKDIR/$NAME.img"
 LOOP_DEVICE=$(losetup -f --partscan --show "$WORKDIR/$NAME.img")
 
 echo "Mounting partitions using device: $LOOP_DEVICE"
+e2fsck -f "${LOOP_DEVICE}p2"
+resize2fs "${LOOP_DEVICE}p2"
 mkdir "$WORKDIR/rootfs/"
 mount "${LOOP_DEVICE}p2" "$WORKDIR/rootfs/"
 mount "${LOOP_DEVICE}p1" "$WORKDIR/rootfs/boot/firmware/"
