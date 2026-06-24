@@ -1,7 +1,5 @@
 #!/bin/bash
 
-cd /chroot/
-
 /bin/bash
 
 apt-get update

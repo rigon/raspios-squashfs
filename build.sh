@@ -13,8 +13,6 @@ unmount_chroot() {
     umount "$WORKDIR/rootfs/boot/firmware/" 2>/dev/null || true
     umount "$WORKDIR/rootfs/qemu-aarch64-static" 2>/dev/null || true
     rm "$WORKDIR/rootfs/qemu-aarch64-static" || true
-    umount "$WORKDIR/rootfs/chroot" 2>/dev/null || true
-    rmdir "$WORKDIR/rootfs/chroot" || true
 }
 
 # Unmount rootfs
@@ -80,11 +78,10 @@ mount --bind /dev/pts "$WORKDIR/rootfs/dev/pts"
 
 touch "$WORKDIR/rootfs/qemu-aarch64-static"
 mount --bind /usr/bin/qemu-aarch64-static "$WORKDIR/rootfs/qemu-aarch64-static"
-mkdir "$WORKDIR/rootfs/chroot"
-mount --bind chroot/ "$WORKDIR/rootfs/chroot"
 
 echo "Chroot into rootfs..."
-chroot "$WORKDIR/rootfs/" /qemu-aarch64-static /bin/bash -c /chroot/run.sh "$PARAMS_RUN_SCRIPT"
+cp packages "$WORKDIR/rootfs/"
+chroot "$WORKDIR/rootfs/" /qemu-aarch64-static /bin/bash -c "$(cat run.sh)"
 
 echo "Creating output files..."
 mkdir "$WORKDIR/output/"
