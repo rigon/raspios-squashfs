@@ -21,7 +21,7 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-NAME=$(basename $IMAGE .img.xz)
+NAME=$(basename "$IMAGE" .img.xz)
 echo "Building $NAME"
 
 # Clean possible previous dirty state
@@ -66,7 +66,7 @@ mkdir "$WORKDIR/rootfs/chroot"
 mount --bind chroot/ "$WORKDIR/rootfs/chroot"
 
 echo "Chroot into rootfs..."
-chroot "$WORKDIR/rootfs/" /qemu-aarch64-static /bin/bash -c /chroot/run.sh $PARAMS_RUN_SCRIPT
+chroot "$WORKDIR/rootfs/" /qemu-aarch64-static /bin/bash -c /chroot/run.sh "$PARAMS_RUN_SCRIPT"
 
 echo "Creating output files..."
 umount -lf "$WORKDIR/rootfs/proc"
