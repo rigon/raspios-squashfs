@@ -46,7 +46,7 @@ run_in_chroot() {
     apt-get update
 
     # Add/remove the desired packages in the final build
-    PACKAGES=$(cat packages | sed '/^#/d; /^$/d' | sort -u)
+    PACKAGES=$(cat packages.list | sort -u)
     INSTALLED=$(apt-mark showmanual | sort -u)
     readarray -t TO_INSTALL < <(comm -13 <(echo "$INSTALLED") <(echo "$PACKAGES"))
     readarray -t TO_REMOVE < <(comm -23 <(echo "$INSTALLED") <(echo "$PACKAGES"))
@@ -135,7 +135,7 @@ touch "$WORKDIR/rootfs/qemu-aarch64-static"
 mount --bind /usr/bin/qemu-aarch64-static "$WORKDIR/rootfs/qemu-aarch64-static"
 
 echo "Chroot into rootfs..."
-cp packages "$WORKDIR/rootfs/"
+cat packages.conf | sed '/^#/d; /^$/d' > "$WORKDIR/rootfs/packages.list"
 chroot "$WORKDIR/rootfs/" /qemu-aarch64-static /bin/bash -c "$(declare -f run_in_chroot); run_in_chroot"
 
 echo "Creating output files..."
