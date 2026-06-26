@@ -41,19 +41,16 @@ fi
 
 # Script executed inside the chroot (shipped in via declare -f below)
 run_in_chroot() {
+    local to_install=($1)
+    local to_remove=($2)
+
     /bin/bash
 
     apt-get update
 
-    # Add/remove the desired packages in the final build
-    PACKAGES=$(cat packages.list | sort -u)
-    INSTALLED=$(apt-mark showmanual | sort -u)
-    readarray -t TO_INSTALL < <(comm -13 <(echo "$INSTALLED") <(echo "$PACKAGES"))
-    readarray -t TO_REMOVE < <(comm -23 <(echo "$INSTALLED") <(echo "$PACKAGES"))
-
     # Add live-boot to allow booting from squashfs
     sed -i 's/^MODULES=dep/MODULES=most/' /etc/initramfs-tools/initramfs.conf
-    apt-get upgrade -y live-boot+ "${TO_INSTALL[@]/%/+}" "${TO_REMOVE[@]/%/-}"
+    apt-get upgrade -y live-boot+ "${to_install[@]/%/+}" "${to_remove[@]/%/-}"
     sed -i 's/^MODULES=most/MODULES=dep/' /etc/initramfs-tools/initramfs.conf
 
     apt-get autoremove --purge -y
@@ -134,9 +131,12 @@ mount --bind /dev/pts "$WORKDIR/rootfs/dev/pts"
 touch "$WORKDIR/rootfs/qemu-aarch64-static"
 mount --bind /usr/bin/qemu-aarch64-static "$WORKDIR/rootfs/qemu-aarch64-static"
 
+echo "Preparing rootfs..."
+readarray -t TO_INSTALL < <(sed -n 's/^+//p' packages.conf | sort -u)
+readarray -t TO_REMOVE < <(sed -n 's/^-//p' packages.conf | sort -u)
+
 echo "Chroot into rootfs..."
-cat packages.conf | sed '/^#/d; /^$/d' > "$WORKDIR/rootfs/packages.list"
-chroot "$WORKDIR/rootfs/" /qemu-aarch64-static /bin/bash -c "$(declare -f run_in_chroot); run_in_chroot"
+chroot "$WORKDIR/rootfs/" /qemu-aarch64-static /bin/bash -c "$(declare -f run_in_chroot); run_in_chroot '${TO_INSTALL[*]}' '${TO_REMOVE[*]}'"
 
 echo "Creating output files..."
 mkdir "$WORKDIR/output/"
