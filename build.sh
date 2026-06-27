@@ -1,9 +1,24 @@
 #!/bin/bash
 
 WORKDIR="/tmp/raspios-squashfs-build"
+EXTRA_SIZE="2G"   # grow rootfs partition by this amount (e.g. 2G, 512M)
+OUTDIR="out"      # output directory
 
-# Grow rootfs partition by (optional arg, e.g. 2G, 512M)
-EXTRA_SIZE="${2:-2G}"
+
+usage() {
+    echo "Usage: $0 [-s extra_size] [-o output_dir] <image.img.xz>"
+}
+
+while getopts ":s:o:h" opt; do
+    case "$opt" in
+        s) EXTRA_SIZE="$OPTARG" ;;
+        o) OUTDIR="$OPTARG" ;;
+        h) usage; exit 0 ;;
+        :) echo "Error: option -$OPTARG requires an argument."; usage; exit 1 ;;
+        \?) echo "Error: unknown option -$OPTARG."; usage; exit 1 ;;
+    esac
+done
+shift $((OPTIND - 1))
 
 set -e
 
@@ -16,9 +31,10 @@ for cmd in $REQUIRED_CMDS; do
     fi
 done
 
-# Check if exactly one argument is provided
+# The source image must be provided
 if [ "$#" -lt 1 ]; then
     echo "Error: You must supply the source image file."
+    usage
     exit 1
 fi
 IMAGE="$1"
@@ -78,7 +94,7 @@ unmount_chroot() {
     umount -lf "$WORKDIR/rootfs/dev" 2>/dev/null || true
     umount "$WORKDIR/rootfs/boot/firmware/" 2>/dev/null || true
     umount "$WORKDIR/rootfs/qemu-aarch64-static" 2>/dev/null || true
-    rm "$WORKDIR/rootfs/qemu-aarch64-static" || true
+    rm "$WORKDIR/rootfs/qemu-aarch64-static" 2>/dev/null || true
 }
 
 # Unmount rootfs
@@ -148,8 +164,9 @@ cat > "$WORKDIR/output/cmdline.txt" << EOF
 console=serial0,115200 console=tty1 boot=live live-media-path=/ live-image=$NAME.squashfs
 EOF
 
-echo "Creating output ZIP archive $NAME.zip"
-OUTDIR="$PWD"
+echo "Creating output ZIP archive $OUTDIR/$NAME.zip"
+mkdir -p "$OUTDIR"
+OUTDIR="$(realpath "$OUTDIR")"
 rm -f "$OUTDIR/$NAME.zip"
 pushd "$WORKDIR/output/"
 zip -r "$OUTDIR/$NAME.zip" .
