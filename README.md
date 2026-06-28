@@ -23,3 +23,15 @@ directory:
 
     sudo install -m755 build.sh /usr/local/bin/raspios-squashfs
     cd ~/my-pi && sudo raspios-squashfs <path_image_file>
+
+## Customization
+
+Package changes are driven by `packages.conf` (see the comments in that file).
+
+For anything beyond installing/removing packages, drop a `customize.sh` next to
+`packages.conf`. If present, it runs automatically during the build, inside the
+chroot (ARM/qemu), after the package changes are applied. It runs as root in the
+target filesystem — paths are target-relative, its contents run inline so
+nothing is written to the image, and apt lists are already cleaned (run
+`apt-get update` first if you install anything). See `customize.sh.example` for
+a starting point.

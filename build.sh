@@ -153,6 +153,10 @@ readarray -t TO_REMOVE < <(sed -n 's/^-//p' packages.conf | sort -u)
 
 echo "Chroot into rootfs..."
 chroot "$WORKDIR/rootfs/" /qemu-aarch64-static /bin/bash -c "$(declare -f run_in_chroot); run_in_chroot '${TO_INSTALL[*]}' '${TO_REMOVE[*]}'"
+if [ -f customize.sh ]; then
+    echo "Running customization hook..."
+    chroot "$WORKDIR/rootfs/" /qemu-aarch64-static /bin/bash -c "$(cat customize.sh)"
+fi
 
 echo "Creating output files..."
 mkdir "$WORKDIR/output/"

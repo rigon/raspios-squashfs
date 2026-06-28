@@ -1,0 +1,29 @@
+#!/bin/bash
+# Customization hook. Copy this file to "customize.sh" and it will run
+# automatically during the build, inside the chroot (ARM/qemu), after the
+# package changes from packages.conf are applied.
+#
+# It runs as root inside the target filesystem, so:
+#   - paths are target-relative (/etc, /home/pi, ...), not host paths
+#   - its contents run inline; nothing is written to the image
+#   - apt lists are already cleaned, so run `apt-get update` before installing
+#
+# Examples:
+
+# Set the hostname
+# echo "my-pi" > /etc/hostname
+
+# Enable a service
+# systemctl enable ssh
+
+# Drop in a config file (use a heredoc, since host files aren't visible here)
+# cat > /etc/wpa_supplicant/wpa_supplicant.conf << 'EOF'
+# country=PT
+# network={
+#     ssid="my-wifi"
+#     psk="secret"
+# }
+# EOF
+
+# Install something not covered by packages.conf
+# apt-get update && apt-get install -y --no-install-recommends htop
