@@ -23,7 +23,7 @@ shift $((OPTIND - 1))
 set -e
 
 # Ensure all required host commands are available
-REQUIRED_CMDS="xz truncate parted losetup e2fsck resize2fs mksquashfs zip qemu-aarch64-static"
+REQUIRED_CMDS="xz truncate parted losetup e2fsck resize2fs mksquashfs zip tar qemu-aarch64-static"
 for cmd in $REQUIRED_CMDS; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
         echo "Error: missing required command: $cmd"
@@ -147,11 +147,20 @@ mount --bind /dev/pts "$WORKDIR/rootfs/dev/pts"
 touch "$WORKDIR/rootfs/qemu-aarch64-static"
 mount --bind /usr/bin/qemu-aarch64-static "$WORKDIR/rootfs/qemu-aarch64-static"
 
-echo "Preparing rootfs..."
-readarray -t TO_INSTALL < <(sed -n 's/^+//p' packages.conf | sort -u)
-readarray -t TO_REMOVE < <(sed -n 's/^-//p' packages.conf | sort -u)
+echo "Copying project files into rootfs..."
+tar -C "$PWD" \
+    --exclude-vcs \
+    --exclude=build.sh \
+    --exclude=packages.conf \
+    --exclude='customize.sh*' \
+    --exclude=README.md \
+    --exclude=LICENSE \
+    --exclude="$OUTDIR" \
+    -cf - . | tar -C "$WORKDIR/rootfs/" -xf -
 
 echo "Chroot into rootfs..."
+readarray -t TO_INSTALL < <(sed -n 's/^+//p' packages.conf | sort -u)
+readarray -t TO_REMOVE < <(sed -n 's/^-//p' packages.conf | sort -u)
 chroot "$WORKDIR/rootfs/" /qemu-aarch64-static /bin/bash -c "$(declare -f run_in_chroot); run_in_chroot '${TO_INSTALL[*]}' '${TO_REMOVE[*]}'"
 if [ -f customize.sh ]; then
     echo "Running customization hook..."
