@@ -66,6 +66,8 @@ run_in_chroot() {
     local to_install=($1)
     local to_remove=($2)
 
+    set -e
+
     /bin/bash
 
     apt-get update
