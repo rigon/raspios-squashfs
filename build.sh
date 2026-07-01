@@ -5,7 +5,8 @@ EXTRA_SIZE="2G"   # grow rootfs partition by this amount (e.g. 2G, 512M)
 OUTDIR="out"      # output directory
 
 # Colored step message (plain when stdout isn't a terminal)
-step() { [ -t 1 ] && printf '\033[1;34m==>\033[0m %s\n' "$*" || printf '==> %s\n' "$*"; }
+[ -t 1 ] && STEP_FMT='\033[1;34m==>\033[0m %s\n' || STEP_FMT='==> %s\n'
+step() { printf "$STEP_FMT" "$*"; }
 
 
 usage() {
