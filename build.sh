@@ -4,6 +4,9 @@ WORKDIR="/tmp/raspios-squashfs-build"
 EXTRA_SIZE="2G"   # grow rootfs partition by this amount (e.g. 2G, 512M)
 OUTDIR="out"      # output directory
 
+# Colored step message (plain when stdout isn't a terminal)
+step() { [ -t 1 ] && printf '\033[1;34m==>\033[0m %s\n' "$*" || printf '==> %s\n' "$*"; }
+
 
 usage() {
     echo "Usage: $0 [-s extra_size] [-o output_dir] <image.img.xz|image.zip>"
@@ -111,11 +114,11 @@ case "$IMAGE" in
     *.img.xz) NAME=$(basename "$IMAGE" .img.xz) ;;
     *.zip)    NAME=$(basename "$IMAGE" .zip) ;;
 esac
-echo "Building $NAME"
+step "Building $NAME"
 
 # Clean possible previous dirty state
 if [ -d "$WORKDIR" ]; then
-    echo "Cleaning up previous dirty state in $WORKDIR..."
+    step "Cleaning up previous dirty state in $WORKDIR..."
     unmount_chroot
     unmount_rootfs
 fi
@@ -129,7 +132,7 @@ cleanup_on_error() {
 trap cleanup_on_error ERR INT TERM
 
 mkdir -p "$WORKDIR/"
-echo "Extracting image file $IMAGE"
+step "Extracting image file $IMAGE"
 case "$IMAGE" in
     *.img.xz) xz -c -d "$IMAGE" > "$WORKDIR/$NAME.img" ;;
     *.zip)    unzip -p "$IMAGE" "$NAME.img" > "$WORKDIR/$NAME.img" ;;
@@ -137,15 +140,15 @@ esac
 truncate -s "+$EXTRA_SIZE" "$WORKDIR/$NAME.img"
 parted -s "$WORKDIR/$NAME.img" resizepart 2 100%
 
-echo "Detecting partions in $WORKDIR/$NAME.img"
+step "Detecting partions in $WORKDIR/$NAME.img"
 LOOP_DEVICE=$(losetup -f --partscan --show "$WORKDIR/$NAME.img")
 
-echo "Mounting partitions using device: $LOOP_DEVICE"
+step "Mounting partitions using device $LOOP_DEVICE"
 e2fsck -f "${LOOP_DEVICE}p2"
 resize2fs "${LOOP_DEVICE}p2"
 mkdir "$WORKDIR/rootfs/"
 mount "${LOOP_DEVICE}p2" "$WORKDIR/rootfs/"
-mkdir "$WORKDIR/rootfs/boot/firmware/"
+mkdir -p "$WORKDIR/rootfs/boot/firmware/"
 mount "${LOOP_DEVICE}p1" "$WORKDIR/rootfs/boot/firmware/"
 
 mount -t proc proc "$WORKDIR/rootfs/proc"
@@ -156,7 +159,7 @@ mount --bind /dev/pts "$WORKDIR/rootfs/dev/pts"
 touch "$WORKDIR/rootfs/qemu-aarch64-static"
 mount --bind /usr/bin/qemu-aarch64-static "$WORKDIR/rootfs/qemu-aarch64-static"
 
-echo "Copying project files into rootfs..."
+step "Copying project files into rootfs..."
 tar -C "$PWD" \
     --exclude-vcs \
     --exclude=.github \
@@ -168,26 +171,26 @@ tar -C "$PWD" \
     --exclude="$OUTDIR" \
     -vcf - . | tar -C "$WORKDIR/rootfs/" -xf -
 
-echo "Chroot into rootfs..."
+step "Chroot into rootfs..."
 readarray -t TO_INSTALL < <(sed -n 's/^+//p' packages.conf | sort -u)
 readarray -t TO_REMOVE < <(sed -n 's/^-//p' packages.conf | sort -u)
 chroot "$WORKDIR/rootfs/" /qemu-aarch64-static /bin/bash -c "$(declare -f run_in_chroot); run_in_chroot '${TO_INSTALL[*]}' '${TO_REMOVE[*]}'"
 if [ -f customize.sh ]; then
-    echo "Running customization hook..."
+    step "Running customization hook..."
     chroot "$WORKDIR/rootfs/" /qemu-aarch64-static /bin/bash -c "$(cat customize.sh)"
 fi
 
-echo "Creating output files..."
+step "Creating output files..."
 mkdir "$WORKDIR/output/"
 cp -Rv "$WORKDIR/rootfs/boot/firmware/"* "$WORKDIR/output/"
 unmount_chroot
 mksquashfs "$WORKDIR/rootfs/" "$WORKDIR/output/$NAME.squashfs" -comp xz -Xbcj arm
 
 cat > "$WORKDIR/output/cmdline.txt" << EOF
-console=serial0,115200 console=tty1 boot=live live-media-path=/ live-image=$NAME.squashfs
+console=serial0,115200 console=tty1 boot=live live-media-path=/ live-image=$NAME.squashfs persistence
 EOF
 
-echo "Creating output ZIP archive $OUTDIR/$NAME.zip"
+step "Creating output ZIP archive $OUTDIR/$NAME.zip"
 mkdir -p "$OUTDIR"
 OUTDIR="$(realpath "$OUTDIR")"
 rm -f "$OUTDIR/$NAME.zip"
@@ -195,5 +198,5 @@ pushd "$WORKDIR/output/"
 zip -r "$OUTDIR/$NAME.zip" .
 popd
 
-echo "Cleaning up..."
+step "Cleaning up..."
 unmount_rootfs
