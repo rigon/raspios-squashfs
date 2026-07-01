@@ -71,8 +71,7 @@ run_in_chroot() {
 
     apt-get autoremove --purge -y
     # apt-get upgrade -y
-
-    /bin/bash
+    #/bin/bash
 
     apt clean
     rm -rf /var/lib/apt/lists/*
@@ -84,6 +83,9 @@ run_in_chroot() {
 proc            /proc           proc    defaults  0 0
 tmpfs           /tmp            tmpfs   defaults  0 0
 EOF
+
+    # Create SSH server keys (preserve server fingerprint between reboots)
+    ssh-keygen -A
 }
 
 # Unmount everything bind/virtual-mounted inside chroot
