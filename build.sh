@@ -188,7 +188,7 @@ unmount_chroot
 mksquashfs "$WORKDIR/rootfs/" "$WORKDIR/output/$NAME.squashfs" -comp xz -Xbcj arm
 
 cat > "$WORKDIR/output/cmdline.txt" << EOF
-console=serial0,115200 console=tty1 boot=live live-media-path=/ live-image=$NAME.squashfs persistence
+console=serial0,115200 console=tty1 boot=live live-media-path=/ live-image=$NAME.squashfs noprompt noeject persistence
 EOF
 
 step "Creating output ZIP archive $OUTDIR/$NAME.zip"
