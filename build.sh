@@ -6,7 +6,7 @@ OUTDIR="out"      # output directory
 
 
 usage() {
-    echo "Usage: $0 [-s extra_size] [-o output_dir] <image.img.xz>"
+    echo "Usage: $0 [-s extra_size] [-o output_dir] <image.img.xz|image.zip>"
 }
 
 while getopts ":s:o:h" opt; do
@@ -23,7 +23,7 @@ shift $((OPTIND - 1))
 set -e
 
 # Ensure all required host commands are available
-REQUIRED_CMDS="xz truncate parted losetup e2fsck resize2fs mksquashfs zip tar qemu-aarch64-static"
+REQUIRED_CMDS="xz truncate parted losetup e2fsck resize2fs mksquashfs zip unzip tar qemu-aarch64-static"
 for cmd in $REQUIRED_CMDS; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
         echo "Error: missing required command: $cmd"
@@ -44,8 +44,8 @@ if [ ! -f "$IMAGE" ]; then
     echo "Error: Source image '$IMAGE' not found."
     exit 1
 fi
-if [[ "$IMAGE" != *.img.xz ]]; then
-    echo "Error: Source image '$IMAGE' must be a .img.xz file."
+if [[ "$IMAGE" != *.img.xz && "$IMAGE" != *.zip ]]; then
+    echo "Error: Source image '$IMAGE' must be a .img.xz or .zip file."
     exit 1
 fi
 
@@ -107,7 +107,10 @@ unmount_rootfs() {
 }
 
 
-NAME=$(basename "$IMAGE" .img.xz)
+case "$IMAGE" in
+    *.img.xz) NAME=$(basename "$IMAGE" .img.xz) ;;
+    *.zip)    NAME=$(basename "$IMAGE" .zip) ;;
+esac
 echo "Building $NAME"
 
 # Clean possible previous dirty state
@@ -127,7 +130,10 @@ trap cleanup_on_error ERR INT TERM
 
 mkdir -p "$WORKDIR/"
 echo "Extracting image file $IMAGE"
-xz -c -d "$IMAGE" > "$WORKDIR/$NAME.img"
+case "$IMAGE" in
+    *.img.xz) xz -c -d "$IMAGE" > "$WORKDIR/$NAME.img" ;;
+    *.zip)    unzip -p "$IMAGE" "$NAME.img" > "$WORKDIR/$NAME.img" ;;
+esac
 truncate -s "+$EXTRA_SIZE" "$WORKDIR/$NAME.img"
 parted -s "$WORKDIR/$NAME.img" resizepart 2 100%
 
@@ -139,6 +145,7 @@ e2fsck -f "${LOOP_DEVICE}p2"
 resize2fs "${LOOP_DEVICE}p2"
 mkdir "$WORKDIR/rootfs/"
 mount "${LOOP_DEVICE}p2" "$WORKDIR/rootfs/"
+mkdir "$WORKDIR/rootfs/boot/firmware/"
 mount "${LOOP_DEVICE}p1" "$WORKDIR/rootfs/boot/firmware/"
 
 mount -t proc proc "$WORKDIR/rootfs/proc"
