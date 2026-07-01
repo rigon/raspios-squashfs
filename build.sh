@@ -1,8 +1,9 @@
 #!/bin/bash
 
 WORKDIR="/tmp/raspios-squashfs-build"
-EXTRA_SIZE="2G"   # grow rootfs partition by this amount (e.g. 2G, 512M)
-OUTDIR="out"      # output directory
+EXTRA_SIZE="2G"                 # grow rootfs partition by this amount (e.g. 2G, 512M)
+OUTDIR="out"                    # output directory
+PACKAGES_CONF="packages.conf"   # package list (optional)
 
 # Colored step message (plain when stdout isn't a terminal)
 [ -t 1 ] && STEP_FMT='\033[1;34m==>\033[0m %s\n' || STEP_FMT='==> %s\n'
@@ -10,13 +11,14 @@ step() { printf "$STEP_FMT" "$*"; }
 
 
 usage() {
-    echo "Usage: $0 [-s extra_size] [-o output_dir] <image.img.xz|image.zip>"
+    echo "Usage: $0 [-s extra_size] [-o output_dir] [-p packages_file] <image.img.xz|image.zip>"
 }
 
-while getopts ":s:o:h" opt; do
+while getopts ":s:o:p:h" opt; do
     case "$opt" in
         s) EXTRA_SIZE="$OPTARG" ;;
         o) OUTDIR="$OPTARG" ;;
+        p) PACKAGES_CONF="$OPTARG" ;;
         h) usage; exit 0 ;;
         :) echo "Error: option -$OPTARG requires an argument."; usage; exit 1 ;;
         \?) echo "Error: unknown option -$OPTARG."; usage; exit 1 ;;
@@ -160,21 +162,26 @@ mount --bind /dev/pts "$WORKDIR/rootfs/dev/pts"
 touch "$WORKDIR/rootfs/qemu-aarch64-static"
 mount --bind /usr/bin/qemu-aarch64-static "$WORKDIR/rootfs/qemu-aarch64-static"
 
-step "Copying project files into rootfs..."
+step "Loading project files..."
 tar -C "$PWD" \
     --exclude-vcs \
     --exclude=.github \
     --exclude=build.sh \
-    --exclude=packages.conf \
+    --exclude="$PACKAGES_CONF" \
     --exclude='customize.sh*' \
     --exclude=README.md \
     --exclude=LICENSE \
     --exclude="$OUTDIR" \
     -vcf - . | tar -C "$WORKDIR/rootfs/" -xf -
+if [ -f "$PACKAGES_CONF" ]; then
+    readarray -t TO_INSTALL < <(sed -n 's/^+//p' "$PACKAGES_CONF" | sort -u)
+    readarray -t TO_REMOVE < <(sed -n 's/^-//p' "$PACKAGES_CONF" | sort -u)
+else
+    TO_INSTALL=()
+    TO_REMOVE=()
+fi
 
 step "Chroot into rootfs..."
-readarray -t TO_INSTALL < <(sed -n 's/^+//p' packages.conf | sort -u)
-readarray -t TO_REMOVE < <(sed -n 's/^-//p' packages.conf | sort -u)
 chroot "$WORKDIR/rootfs/" /qemu-aarch64-static /bin/bash -c "$(declare -f run_in_chroot); run_in_chroot '${TO_INSTALL[*]}' '${TO_REMOVE[*]}'"
 if [ -f customize.sh ]; then
     step "Running customization hook..."
