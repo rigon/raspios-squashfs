@@ -152,13 +152,14 @@ mount --bind /usr/bin/qemu-aarch64-static "$WORKDIR/rootfs/qemu-aarch64-static"
 echo "Copying project files into rootfs..."
 tar -C "$PWD" \
     --exclude-vcs \
+    --exclude=.github \
     --exclude=build.sh \
     --exclude=packages.conf \
     --exclude='customize.sh*' \
     --exclude=README.md \
     --exclude=LICENSE \
     --exclude="$OUTDIR" \
-    -cf - . | tar -C "$WORKDIR/rootfs/" -xf -
+    -vcf - . | tar -C "$WORKDIR/rootfs/" -xf -
 
 echo "Chroot into rootfs..."
 readarray -t TO_INSTALL < <(sed -n 's/^+//p' packages.conf | sort -u)
