@@ -70,7 +70,23 @@ run_in_chroot() {
 
     /bin/bash
 
+    # Refresh apt according to the running release
+    . /etc/os-release
+    case "$VERSION_CODENAME" in
+        buster)
+            # unsupported
+            sed -i.bak 's|deb.debian.org|archive.debian.org|g' /etc/apt/sources.list
+            apt-get update --allow-releaseinfo-change
+            ;;
+        bullseye|bookworm)
+            # supported
+            apt-get update --allow-releaseinfo-change
+            ;;
+        *)
+            # trixie and newer
     apt-get update
+            ;;
+    esac
 
     # Add live-boot to allow booting from squashfs
     sed -i 's/^MODULES=dep/MODULES=most/' /etc/initramfs-tools/initramfs.conf
