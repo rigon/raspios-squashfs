@@ -11,14 +11,15 @@ step() { printf "$STEP_FMT" "$*"; }
 
 
 usage() {
-    echo "Usage: $0 [-s extra_size] [-o output_dir] [-p packages_file] <image.img.xz|image.zip>"
+    echo "Usage: $0 [-s extra_size] [-o output_dir] [-p packages_file] [-d [user@]host] <image.img.xz|image.zip>"
 }
 
-while getopts ":s:o:p:h" opt; do
+while getopts ":s:o:p:d:h" opt; do
     case "$opt" in
         s) EXTRA_SIZE="$OPTARG" ;;
         o) OUTDIR="$OPTARG" ;;
         p) PACKAGES_CONF="$OPTARG" ;;
+        d) DEPLOY_TARGET="$OPTARG" ;;
         h) usage; exit 0 ;;
         :) echo "Error: option -$OPTARG requires an argument."; usage; exit 1 ;;
         \?) echo "Error: unknown option -$OPTARG."; usage; exit 1 ;;
@@ -29,7 +30,7 @@ shift $((OPTIND - 1))
 set -e
 
 # Ensure all required host commands are available
-REQUIRED_CMDS="xz truncate parted losetup e2fsck resize2fs mksquashfs zip unzip tar qemu-aarch64-static"
+REQUIRED_CMDS="xz truncate parted losetup e2fsck resize2fs mksquashfs unzip tar qemu-aarch64-static ssh"
 for cmd in $REQUIRED_CMDS; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
         echo "Error: missing required command: $cmd"
@@ -84,7 +85,7 @@ run_in_chroot() {
             ;;
         *)
             # trixie and newer
-    apt-get update
+            apt-get update
             ;;
     esac
 
@@ -216,13 +217,17 @@ cat > "$WORKDIR/output/cmdline.txt" << EOF
 console=serial0,115200 console=tty1 boot=live live-media-path=/ live-image=$NAME.squashfs noprompt noeject persistence
 EOF
 
-step "Creating output ZIP archive $OUTDIR/$NAME.zip"
+step "Creating output archive $OUTDIR/$NAME.tar.gz"
 mkdir -p "$OUTDIR"
-OUTDIR="$(realpath "$OUTDIR")"
-rm -f "$OUTDIR/$NAME.zip"
-pushd "$WORKDIR/output/"
-zip -r "$OUTDIR/$NAME.zip" .
-popd
+tar -C "$WORKDIR/output/" -cvzf "$OUTDIR/$NAME.tar.gz" .
 
 step "Cleaning up..."
 unmount_rootfs
+
+if [ -n "$DEPLOY_TARGET" ]; then
+    step "Deploying $OUTDIR/$NAME.tar.gz to $DEPLOY_TARGET over SSH"
+    ssh "$DEPLOY_TARGET" 'set -e; MEDIUM=/run/live/medium;
+        sudo mount -o remount,rw "$MEDIUM";
+        sudo tar -C "$MEDIUM" -xzf -;
+        sudo systemctl reboot' < "$OUTDIR/$NAME.tar.gz"
+fi
