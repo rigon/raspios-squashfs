@@ -1,0 +1,63 @@
+# Package changes applied on top of the base image.
+#
+# Each active line is one change; anything not listed is left untouched:
+#   +package   install (or keep) the package
+#   -package   remove the package
+#
+# To list what the base image already ships:
+#
+#    apt-mark showmanual
+#
+# -----
+
+# Install extra packages (examples)
+#+tmux
+#+vim
++raspi-utils-core
+
+# Remove build tooling
+-build-essential
+-dpkg-dev
+-pkg-config
+-gdb
+
+# Remove cloud / remote provisioning
+-cloud-init
+-rpi-cloud-init-mods
+-rpi-connect-lite
+-rpi-swap
+-rpi-usb-gadget
+-userconf-pi
+-systemd-zram-generator
+
+# Remove wireless firmware and tools
+-firmware-atheros
+-firmware-brcm80211
+-firmware-libertas
+-firmware-mediatek
+-firmware-realtek
+-wireless-tools
+-wpasupplicant
+
+# Remove kernel images and headers (squashfs live-boot supplies its own)
+-linux-headers-rpi-2712
+-linux-headers-rpi-v8
+-linux-image-rpi-2712
+-linux-image-rpi-v8
+
+# Remove docs
+-man-db
+-manpages-dev
+
+# Remove misc
+-mkvtoolnix
+-rpicam-apps-lite
+
+# Remove Python tooling
+-python-is-python3
+-python3-gpiozero
+-python3-libgpiod
+-python3-rpi-lgpio
+-python3-smbus2
+-python3-spidev
+-python3-venv

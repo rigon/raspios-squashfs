@@ -16,14 +16,17 @@
 # Enable a service
 # systemctl enable ssh
 
-# Drop in a config file (use a heredoc, since host files aren't visible here)
-# cat > /etc/wpa_supplicant/wpa_supplicant.conf << 'EOF'
-# country=PT
-# network={
-#     ssid="my-wifi"
-#     psk="secret"
-# }
-# EOF
-
 # Install something not covered by packages.conf
 # apt-get update && apt-get install -y --no-install-recommends htop
+
+# Remove default pi user
+# /usr/sbin/deluser --remove-home pi
+# echo > /etc/subuid
+# echo > /etc/subgid
+
+# Create a new user (configured for docker, subids and subgids are used by docker)
+# The password is set via env var (sudo PASSWD=secret build.sh ...)
+# /usr/sbin/useradd -m user
+# /usr/sbin/usermod -aG sudo,docker user
+# /usr/sbin/usermod --add-subuids 100000-165535 --add-subgids 100000-165535 user
+# echo "user:${RIGON_PASSWD}" | /usr/sbin/chpasswd
