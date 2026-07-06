@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 WORKDIR="/tmp/raspios-squashfs-build"
 EXTRA_SIZE="2G"                 # grow rootfs partition by this amount (e.g. 2G, 512M)
 OUTDIR="out"                    # output directory
@@ -28,8 +30,6 @@ while getopts ":s:o:p:d:h" opt; do
     esac
 done
 shift $((OPTIND - 1))
-
-set -e
 
 # Ensure all required host commands are available
 REQUIRED_CMDS="xz truncate parted losetup e2fsck resize2fs mksquashfs unzip tar qemu-aarch64-static ssh"
