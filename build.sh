@@ -14,11 +14,12 @@ step() { printf "$STEP_FMT" "$*"; }
 
 
 usage() {
-    echo "Usage: $0 [-s extra_size] [-o output_dir] [-p packages_file] [-c config_script] [-d [user@]host] <image.img.xz|image.zip>"
+    echo "Usage: $0 [-n build_name] [-s extra_size] [-o output_dir] [-p packages_file] [-c config_script] [-d [user@]host] <image.img.xz|image.zip>"
 }
 
-while getopts ":s:o:p:d:h" opt; do
+while getopts ":n:s:o:p:d:h" opt; do
     case "$opt" in
+        n) BUILD_NAME="$OPTARG" ;;
         s) EXTRA_SIZE="$OPTARG" ;;
         o) OUTDIR="$OPTARG" ;;
         p) PACKAGES_CONF="$OPTARG" ;;
@@ -46,15 +47,15 @@ if [ "$#" -lt 1 ]; then
     usage
     exit 1
 fi
-IMAGE="$1"
+IMAGE_PATH="$1"
 
 # Validate the source image
-if [ ! -f "$IMAGE" ]; then
-    echo "Error: Source image '$IMAGE' not found."
+if [ ! -f "$IMAGE_PATH" ]; then
+    echo "Error: Source image '$IMAGE_PATH' not found."
     exit 1
 fi
-if [[ "$IMAGE" != *.img.xz && "$IMAGE" != *.zip ]]; then
-    echo "Error: Source image '$IMAGE' must be a .img.xz or .zip file."
+if [[ "$IMAGE_PATH" != *.img.xz && "$IMAGE_PATH" != *.zip ]]; then
+    echo "Error: Source image '$IMAGE_PATH' must be a .img.xz or .zip file."
     exit 1
 fi
 
@@ -134,11 +135,14 @@ unmount_rootfs() {
 }
 
 
-case "$IMAGE" in
-    *.img.xz) NAME=$(basename "$IMAGE" .img.xz) ;;
-    *.zip)    NAME=$(basename "$IMAGE" .zip) ;;
+case "$IMAGE_PATH" in
+    *.img.xz) IMAGE_NAME=$(basename "$IMAGE_PATH" .img.xz) ;;
+    *.zip)    IMAGE_NAME=$(basename "$IMAGE_PATH" .zip) ;;
 esac
-step "Building $NAME"
+if [ -z "$BUILD_NAME" ]; then
+    BUILD_NAME="$IMAGE_NAME"
+fi
+step "Building $BUILD_NAME"
 
 # Clean possible previous dirty state
 if [ -d "$WORKDIR" ]; then
@@ -156,16 +160,16 @@ cleanup_on_error() {
 trap cleanup_on_error ERR INT TERM
 
 mkdir -p "$WORKDIR/"
-step "Extracting image file $IMAGE"
-case "$IMAGE" in
-    *.img.xz) xz -c -d "$IMAGE" > "$WORKDIR/$NAME.img" ;;
-    *.zip)    unzip -p "$IMAGE" "$NAME.img" > "$WORKDIR/$NAME.img" ;;
+step "Extracting image file $IMAGE_PATH"
+case "$IMAGE_PATH" in
+    *.img.xz) xz -c -d "$IMAGE_PATH" > "$WORKDIR/$IMAGE_NAME.img" ;;
+    *.zip)    unzip -p "$IMAGE_PATH" "$IMAGE_NAME.img" > "$WORKDIR/$IMAGE_NAME.img" ;;
 esac
-truncate -s "+$EXTRA_SIZE" "$WORKDIR/$NAME.img"
-parted -s "$WORKDIR/$NAME.img" resizepart 2 100%
+truncate -s "+$EXTRA_SIZE" "$WORKDIR/$IMAGE_NAME.img"
+parted -s "$WORKDIR/$IMAGE_NAME.img" resizepart 2 100%
 
-step "Detecting partions in $WORKDIR/$NAME.img"
-LOOP_DEVICE=$(losetup -f --partscan --show "$WORKDIR/$NAME.img")
+step "Detecting partions in $WORKDIR/$IMAGE_NAME.img"
+LOOP_DEVICE=$(losetup -f --partscan --show "$WORKDIR/$IMAGE_NAME.img")
 
 step "Mounting partitions using device $LOOP_DEVICE"
 e2fsck -f "${LOOP_DEVICE}p2"
@@ -213,23 +217,23 @@ step "Creating output files..."
 mkdir "$WORKDIR/output/"
 cp -Rv "$WORKDIR/rootfs/boot/firmware/"* "$WORKDIR/output/"
 unmount_chroot
-mksquashfs "$WORKDIR/rootfs/" "$WORKDIR/output/$NAME.squashfs" -comp xz -Xbcj arm
+mksquashfs "$WORKDIR/rootfs/" "$WORKDIR/output/$BUILD_NAME.squashfs" -comp xz -Xbcj arm
 
 cat > "$WORKDIR/output/cmdline.txt" << EOF
-console=serial0,115200 console=tty1 boot=live live-media-path=/ live-image=$NAME.squashfs noprompt noeject persistence
+console=serial0,115200 console=tty1 boot=live live-media-path=/ live-image=$BUILD_NAME.squashfs noprompt noeject persistence
 EOF
 
-step "Creating output archive $OUTDIR/$NAME.tar.gz"
+step "Creating output archive $OUTDIR/$BUILD_NAME.tar.gz"
 mkdir -p "$OUTDIR"
-tar -C "$WORKDIR/output/" -cvzf "$OUTDIR/$NAME.tar.gz" .
+tar -C "$WORKDIR/output/" -cvzf "$OUTDIR/$BUILD_NAME.tar.gz" .
 
 step "Cleaning up..."
 unmount_rootfs
 
 if [ -n "$DEPLOY_TARGET" ]; then
-    step "Deploying $OUTDIR/$NAME.tar.gz to $DEPLOY_TARGET over SSH"
+    step "Deploying $OUTDIR/$BUILD_NAME.tar.gz to $DEPLOY_TARGET over SSH"
     ssh "$DEPLOY_TARGET" 'set -e; MEDIUM=/run/live/medium;
         sudo mount -o remount,rw "$MEDIUM";
         sudo tar -C "$MEDIUM" -xzf -;
-        sudo systemctl reboot' < "$OUTDIR/$NAME.tar.gz"
+        sudo systemctl reboot' < "$OUTDIR/$BUILD_NAME.tar.gz"
 fi
