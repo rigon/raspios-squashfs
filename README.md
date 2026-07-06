@@ -14,11 +14,14 @@ Build a squashfs version of [Raspberry Pi OS](https://www.raspberrypi.com/softwa
 
 Download the OS image from the official website. Then:
 
-    sudo ./build.sh [-s extra_size] [-o output_dir] [-d [user@]host] <path_image_file>
+    sudo ./build.sh [-n build_name] [-s extra_size] [-o output_dir] [-p packages_file] [-c config_script] [-d [user@]host] <image.img.xz|image.zip>
 
-- `-s extra_size` — grow the rootfs partition by this amount (default `2G`).
-- `-o output_dir` — where the output `.tar.gz` is written (default `out/`).
-- `-d [user@]host` — after building, push the image to a running Pi over SSH.
+- `-n build_name` - name of build (default is the name of the source image)
+- `-s extra_size` - grow the rootfs partition by this amount (default `2G`).
+- `-o output_dir` - where the output `.tar.gz` is written (default `out/`).
+- `-p packages_file` - list of packages to install/remove (default `packages.conf`)
+- `-c config_script` - configuration script to run inside after (default `configure.sh`)
+- `-d [user@]host` - after building, push the image to a running Pi over SSH.
 
 `build.sh` can be installed on `PATH` and run as a system command from any
 directory:
@@ -39,14 +42,14 @@ into the new version.
 Package changes are driven by `packages.conf` (see the comments in that file).
 
 To drop files into the image, place them in the project directory mirroring
-their target paths — e.g. `etc/hostname` or `home/pi/.bashrc`. The whole
-project directory is copied into the rootfs before `customize.sh` runs, merging
+their target paths - e.g. `etc/hostname` or `home/pi/.bashrc`. The whole
+project directory is copied into the rootfs before `configure.sh` runs, merging
 into existing directories and overwriting files.
 
 For anything beyond installing/removing packages and copying files, drop a
-`customize.sh` next to `packages.conf`. If present, it runs automatically during
+`configure.sh` next to `packages.conf`. If present, it runs automatically during
 the build, inside the chroot (ARM/qemu), after the package changes are applied
-and the project files are copied in. It runs as root in the target filesystem —
+and the project files are copied in. It runs as root in the target filesystem -
 paths are target-relative, its contents run inline so nothing is written to the
 image, and apt lists are already cleaned (run `apt-get update` first if you
-install anything). See `customize.sh.example` for a starting point.
+install anything). See `configure.sh.example` for a starting point.

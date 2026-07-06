@@ -192,10 +192,10 @@ tar -C "$PWD" \
     --exclude-vcs \
     --exclude=.github \
     --exclude=build.sh \
-    --exclude="$PACKAGES_CONF" \
-    --exclude="$CONFIG_SCRIPT" \
     --exclude=README.md \
     --exclude=LICENSE \
+    --exclude="$PACKAGES_CONF" \
+    --exclude="$CONFIG_SCRIPT" \
     --exclude="$OUTDIR" \
     -vcf - . | tar -C "$WORKDIR/rootfs/" -xf -
 if [ -f "$PACKAGES_CONF" ]; then
@@ -210,7 +210,7 @@ step "Chroot into rootfs..."
 chroot "$WORKDIR/rootfs/" /qemu-aarch64-static /bin/bash -c "$(declare -f run_in_chroot); run_in_chroot '${TO_INSTALL[*]}' '${TO_REMOVE[*]}'"
 if [ -f "$CONFIG_SCRIPT" ]; then
     step "Running customization hook..."
-    chroot "$WORKDIR/rootfs/" /qemu-aarch64-static /bin/bash -c "$(cat \"$CONFIG_SCRIPT\")"
+    chroot "$WORKDIR/rootfs/" /qemu-aarch64-static /bin/bash -c "$(cat "$CONFIG_SCRIPT")"
 fi
 
 step "Creating output files..."
