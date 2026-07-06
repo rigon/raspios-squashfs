@@ -4,6 +4,7 @@ WORKDIR="/tmp/raspios-squashfs-build"
 EXTRA_SIZE="2G"                 # grow rootfs partition by this amount (e.g. 2G, 512M)
 OUTDIR="out"                    # output directory
 PACKAGES_CONF="packages.conf"   # package list (optional)
+CONFIG_SCRIPT="configure.sh"    # configuration script (optional)
 
 # Colored step message (plain when stdout isn't a terminal)
 [ -t 1 ] && STEP_FMT='\033[1;34m==>\033[0m %s\n' || STEP_FMT='==> %s\n'
@@ -11,7 +12,7 @@ step() { printf "$STEP_FMT" "$*"; }
 
 
 usage() {
-    echo "Usage: $0 [-s extra_size] [-o output_dir] [-p packages_file] [-d [user@]host] <image.img.xz|image.zip>"
+    echo "Usage: $0 [-s extra_size] [-o output_dir] [-p packages_file] [-c config_script] [-d [user@]host] <image.img.xz|image.zip>"
 }
 
 while getopts ":s:o:p:d:h" opt; do
@@ -19,6 +20,7 @@ while getopts ":s:o:p:d:h" opt; do
         s) EXTRA_SIZE="$OPTARG" ;;
         o) OUTDIR="$OPTARG" ;;
         p) PACKAGES_CONF="$OPTARG" ;;
+        c) CONFIG_SCRIPT="$OPTARG" ;;
         d) DEPLOY_TARGET="$OPTARG" ;;
         h) usage; exit 0 ;;
         :) echo "Error: option -$OPTARG requires an argument."; usage; exit 1 ;;
@@ -187,7 +189,7 @@ tar -C "$PWD" \
     --exclude=.github \
     --exclude=build.sh \
     --exclude="$PACKAGES_CONF" \
-    --exclude='customize.sh*' \
+    --exclude="$CONFIG_SCRIPT" \
     --exclude=README.md \
     --exclude=LICENSE \
     --exclude="$OUTDIR" \
@@ -202,9 +204,9 @@ fi
 
 step "Chroot into rootfs..."
 chroot "$WORKDIR/rootfs/" /qemu-aarch64-static /bin/bash -c "$(declare -f run_in_chroot); run_in_chroot '${TO_INSTALL[*]}' '${TO_REMOVE[*]}'"
-if [ -f customize.sh ]; then
+if [ -f "$CONFIG_SCRIPT" ]; then
     step "Running customization hook..."
-    chroot "$WORKDIR/rootfs/" /qemu-aarch64-static /bin/bash -c "$(cat customize.sh)"
+    chroot "$WORKDIR/rootfs/" /qemu-aarch64-static /bin/bash -c "$(cat \"$CONFIG_SCRIPT\")"
 fi
 
 step "Creating output files..."
