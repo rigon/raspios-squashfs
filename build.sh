@@ -3,7 +3,6 @@
 set -e
 
 WORKDIR="/tmp/raspios-squashfs-build"
-EXTRA_SIZE="2G"                 # grow rootfs partition by this amount (e.g. 2G, 512M)
 OUTDIR="out"                    # output directory
 PACKAGES_CONF="packages.conf"   # package list (optional)
 CONFIG_SCRIPT="configure.sh"    # configuration script (optional)
@@ -14,13 +13,12 @@ step() { printf "$STEP_FMT" "$*"; }
 
 
 usage() {
-    echo "Usage: $0 [-n build_name] [-s extra_size] [-o output_dir] [-p packages_file] [-c config_script] [-d [user@]host] <image.img.xz|image.zip>"
+    echo "Usage: $0 [-n build_name] [-o output_dir] [-p packages_file] [-c config_script] [-d [user@]host] <image.img.xz|image.zip>"
 }
 
-while getopts ":n:s:o:p:c:d:h" opt; do
+while getopts ":n:o:p:c:d:h" opt; do
     case "$opt" in
         n) BUILD_NAME="$OPTARG" ;;
-        s) EXTRA_SIZE="$OPTARG" ;;
         o) OUTDIR="$OPTARG" ;;
         p) PACKAGES_CONF="$OPTARG" ;;
         c) CONFIG_SCRIPT="$OPTARG" ;;
@@ -33,7 +31,7 @@ done
 shift $((OPTIND - 1))
 
 # Ensure all required host commands are available
-REQUIRED_CMDS="xz truncate parted losetup e2fsck resize2fs mksquashfs unzip tar qemu-aarch64-static ssh"
+REQUIRED_CMDS="xz losetup mksquashfs unzip tar qemu-aarch64-static ssh"
 for cmd in $REQUIRED_CMDS; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
         echo "Error: missing required command: $cmd"
@@ -129,6 +127,7 @@ unmount_chroot() {
 
 # Unmount rootfs
 unmount_rootfs() {
+    umount "$WORKDIR/rootfs-overlay/" 2>/dev/null || true
     umount "$WORKDIR/rootfs/" 2>/dev/null || true
     losetup -l -n -O NAME,BACK-FILE 2>/dev/null | awk -v d="$WORKDIR" '$2 ~ d {print $1}' | xargs -r losetup -d
     rm -rf "$WORKDIR"
@@ -165,15 +164,11 @@ case "$IMAGE_PATH" in
     *.img.xz) xz -c -d "$IMAGE_PATH" > "$WORKDIR/$IMAGE_NAME.img" ;;
     *.zip)    unzip -p "$IMAGE_PATH" "$IMAGE_NAME.img" > "$WORKDIR/$IMAGE_NAME.img" ;;
 esac
-truncate -s "+$EXTRA_SIZE" "$WORKDIR/$IMAGE_NAME.img"
-parted -s "$WORKDIR/$IMAGE_NAME.img" resizepart 2 100%
 
 step "Detecting partions in $WORKDIR/$IMAGE_NAME.img"
 LOOP_DEVICE=$(losetup -f --partscan --show "$WORKDIR/$IMAGE_NAME.img")
 
 step "Mounting partitions using device $LOOP_DEVICE"
-e2fsck -f "${LOOP_DEVICE}p2"
-resize2fs "${LOOP_DEVICE}p2"
 mkdir "$WORKDIR/rootfs/"
 mount "${LOOP_DEVICE}p2" "$WORKDIR/rootfs/"
 mkdir -p "$WORKDIR/rootfs/boot/firmware/"
@@ -187,6 +182,9 @@ mount --bind /dev/pts "$WORKDIR/rootfs/dev/pts"
 touch "$WORKDIR/rootfs/qemu-aarch64-static"
 mount --bind /usr/bin/qemu-aarch64-static "$WORKDIR/rootfs/qemu-aarch64-static"
 
+mkdir "$WORKDIR/rootfs-overlay/" "$WORKDIR/rootfs-upper/" "$WORKDIR/rootfs-work/"
+mount -t overlay overlay -o "lowerdir=$WORKDIR/rootfs,upperdir=$WORKDIR/rootfs-upper,workdir=$WORKDIR/rootfs-work" "$WORKDIR/rootfs-overlay/"
+
 step "Loading project files..."
 tar -C "$PWD" \
     --exclude-vcs \
@@ -197,7 +195,7 @@ tar -C "$PWD" \
     --exclude="$PACKAGES_CONF" \
     --exclude="$CONFIG_SCRIPT" \
     --exclude="$OUTDIR" \
-    -vcf - . | tar -C "$WORKDIR/rootfs/" -xf -
+    -vcf - . | tar -C "$WORKDIR/rootfs-overlay/" -xf -
 if [ -f "$PACKAGES_CONF" ]; then
     readarray -t TO_INSTALL < <(sed -n 's/^+//p' "$PACKAGES_CONF" | sort -u)
     readarray -t TO_REMOVE < <(sed -n 's/^-//p' "$PACKAGES_CONF" | sort -u)
@@ -207,17 +205,17 @@ else
 fi
 
 step "Chroot into rootfs..."
-chroot "$WORKDIR/rootfs/" /qemu-aarch64-static /bin/bash -c "$(declare -f run_in_chroot); run_in_chroot '${TO_INSTALL[*]}' '${TO_REMOVE[*]}'"
+chroot "$WORKDIR/rootfs-overlay/" /qemu-aarch64-static /bin/bash -c "$(declare -f run_in_chroot); run_in_chroot '${TO_INSTALL[*]}' '${TO_REMOVE[*]}'"
 if [ -f "$CONFIG_SCRIPT" ]; then
     step "Running customization hook..."
-    chroot "$WORKDIR/rootfs/" /qemu-aarch64-static /bin/bash -c "$(cat "$CONFIG_SCRIPT")"
+    chroot "$WORKDIR/rootfs-overlay/" /qemu-aarch64-static /bin/bash -c "$(cat "$CONFIG_SCRIPT")"
 fi
 
 step "Creating output files..."
 mkdir "$WORKDIR/output/"
-cp -Rv "$WORKDIR/rootfs/boot/firmware/"* "$WORKDIR/output/"
+cp -Rv "$WORKDIR/rootfs-overlay/boot/firmware/"* "$WORKDIR/output/"
 unmount_chroot
-mksquashfs "$WORKDIR/rootfs/" "$WORKDIR/output/$BUILD_NAME.squashfs" -comp xz -Xbcj arm
+mksquashfs "$WORKDIR/rootfs-overlay/" "$WORKDIR/output/$BUILD_NAME.squashfs" -comp xz -Xbcj arm
 
 cat > "$WORKDIR/output/cmdline.txt" << EOF
 console=serial0,115200 console=tty1 boot=live live-media-path=/ live-image=$BUILD_NAME.squashfs noprompt noeject persistence
