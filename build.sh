@@ -17,7 +17,7 @@ usage() {
     echo "Usage: $0 [-n build_name] [-s extra_size] [-o output_dir] [-p packages_file] [-c config_script] [-d [user@]host] <image.img.xz|image.zip>"
 }
 
-while getopts ":n:s:o:p:d:h" opt; do
+while getopts ":n:s:o:p:c:d:h" opt; do
     case "$opt" in
         n) BUILD_NAME="$OPTARG" ;;
         s) EXTRA_SIZE="$OPTARG" ;;
