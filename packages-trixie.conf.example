@@ -50,6 +50,7 @@
 -manpages-dev
 
 # Remove misc
+-apt-listchanges
 -mkvtoolnix
 -rpicam-apps-lite
 
