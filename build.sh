@@ -70,8 +70,6 @@ run_in_chroot() {
 
     set -e
 
-    /bin/bash
-
     # Refresh apt according to the running release
     . /etc/os-release
     case "$VERSION_CODENAME" in
@@ -100,8 +98,11 @@ run_in_chroot() {
     #/bin/bash
 
     apt clean
-    rm -rf /var/lib/apt/lists/*
-    rm /boot/initrd.img-* /boot/vmlinuz-*
+    # systemctl start apt-listchanges.service
+    # python3 -m apt_listchanges.populate_database --profile apt
+
+    # rm -rf /var/lib/apt/lists/*
+    # rm /boot/initrd.img-* /boot/vmlinuz-*
 
     # Override fstab
     cat > /etc/fstab << EOF
@@ -114,23 +115,89 @@ EOF
     ssh-keygen -A
 }
 
-# Unmount everything bind/virtual-mounted inside chroot
-unmount_chroot() {
-    umount -lf "$WORKDIR/rootfs/proc" 2>/dev/null || true
-    umount -lf "$WORKDIR/rootfs/sys" 2>/dev/null || true
-    umount -lf "$WORKDIR/rootfs/dev/pts" 2>/dev/null || true
-    umount -lf "$WORKDIR/rootfs/dev" 2>/dev/null || true
-    umount "$WORKDIR/rootfs/boot/firmware/" 2>/dev/null || true
-    umount "$WORKDIR/rootfs/qemu-aarch64-static" 2>/dev/null || true
-    rm "$WORKDIR/rootfs/qemu-aarch64-static" 2>/dev/null || true
+
+LAYERS=""
+
+init_layers() {
+    local base_path="$1"
+    LAYERS="$base_path"
+}
+
+should_build_layer() {
+    local name="$1"
+    local base="$WORKDIR/layers/$name"
+    [ ! -d "$base" ]
+}
+
+open_layer() {
+    local name="$1"
+    local path="$WORKDIR/layers/$name/"
+
+    mkdir -p "$path" "$WORKDIR/work" "$WORKDIR/merged"
+
+    mount -t overlay "$name" \
+        -o lowerdir="$LAYERS",upperdir="$path",workdir="$WORKDIR/work" \
+        "$WORKDIR/merged"
+}
+
+register_layer() {
+    local name="$1"
+    LAYERS="$WORKDIR/layers/$name/:$LAYERS"
+}
+
+mount_layers() {
+    mkdir -p "$WORKDIR/merged"
+    # Read-only overlay of the full layer stack (no upperdir = read-only mount).
+    mount -t overlay squash -o lowerdir="$LAYERS" "$WORKDIR/merged"
+}
+
+close_layers() {
+    umount -lf "$WORKDIR/merged"
+    rm -rf "$WORKDIR/work" "$WORKDIR/merged"
+}
+
+
+
+mount_chroot() {
+    local root="$1"
+    mount -t proc proc "$root/proc"
+    mount -t sysfs sys "$root/sys"
+    mount --bind /dev "$root/dev"
+    mount --bind /dev/pts "$root/dev/pts"
+    mount --bind "$WORKDIR/bootfs" "$root/boot/firmware"
+    touch "$root/qemu-aarch64-static"
+    mount --bind /usr/bin/qemu-aarch64-static "$root/qemu-aarch64-static"
+}
+
+umount_chroot() {
+    local root="$1"
+    umount -lf "$root/qemu-aarch64-static" 2>/dev/null || true
+    rm -f "$root/qemu-aarch64-static"
+    umount -lf "$root/boot/firmware" 2>/dev/null || true
+    umount -lf "$root/dev/pts" 2>/dev/null || true
+    umount -lf "$root/dev" 2>/dev/null || true
+    umount -lf "$root/sys" 2>/dev/null || true
+    umount -lf "$root/proc" 2>/dev/null || true
+}
+
+run_chroot() {
+    local root="$1"; shift
+    local rc=0
+
+    mount_chroot "$root"
+    chroot "$root" /qemu-aarch64-static /bin/bash -c "$*" || rc=$?
+    umount_chroot "$root"
+
+    return $rc
 }
 
 # Unmount rootfs
-unmount_rootfs() {
-    umount "$WORKDIR/rootfs-overlay/" 2>/dev/null || true
+unmount_all() {
+    close_layers 2>/dev/null || true
+    umount "$WORKDIR/bootfs/" 2>/dev/null || true
     umount "$WORKDIR/rootfs/" 2>/dev/null || true
     losetup -l -n -O NAME,BACK-FILE 2>/dev/null | awk -v d="$WORKDIR" '$2 ~ d {print $1}' | xargs -r losetup -d
-    rm -rf "$WORKDIR"
+    # rm -rf "$WORKDIR"
 }
 
 
@@ -146,14 +213,12 @@ step "Building $BUILD_NAME"
 # Clean possible previous dirty state
 if [ -d "$WORKDIR" ]; then
     step "Cleaning up previous dirty state in $WORKDIR..."
-    unmount_chroot
-    unmount_rootfs
+    unmount_all
 fi
 
 # Cleanup on errors
 cleanup_on_error() {
-    unmount_chroot
-    unmount_rootfs
+    unmount_all
     exit 1
 }
 trap cleanup_on_error ERR INT TERM
@@ -169,33 +234,12 @@ step "Detecting partions in $WORKDIR/$IMAGE_NAME.img"
 LOOP_DEVICE=$(losetup -f --partscan --show "$WORKDIR/$IMAGE_NAME.img")
 
 step "Mounting partitions using device $LOOP_DEVICE"
-mkdir "$WORKDIR/rootfs/"
+mkdir -p "$WORKDIR/rootfs/" "$WORKDIR/bootfs/"
+mount "${LOOP_DEVICE}p1" "$WORKDIR/bootfs/"
 mount "${LOOP_DEVICE}p2" "$WORKDIR/rootfs/"
-mkdir -p "$WORKDIR/rootfs/boot/firmware/"
-mount "${LOOP_DEVICE}p1" "$WORKDIR/rootfs/boot/firmware/"
+init_layers "$WORKDIR/rootfs/"
 
-mount -t proc proc "$WORKDIR/rootfs/proc"
-mount -t sysfs sys "$WORKDIR/rootfs/sys"
-mount --bind /dev "$WORKDIR/rootfs/dev"
-mount --bind /dev/pts "$WORKDIR/rootfs/dev/pts"
-
-touch "$WORKDIR/rootfs/qemu-aarch64-static"
-mount --bind /usr/bin/qemu-aarch64-static "$WORKDIR/rootfs/qemu-aarch64-static"
-
-mkdir "$WORKDIR/rootfs-overlay/" "$WORKDIR/rootfs-upper/" "$WORKDIR/rootfs-work/"
-mount -t overlay overlay -o "lowerdir=$WORKDIR/rootfs,upperdir=$WORKDIR/rootfs-upper,workdir=$WORKDIR/rootfs-work" "$WORKDIR/rootfs-overlay/"
-
-step "Loading project files..."
-tar -C "$PWD" \
-    --exclude-vcs \
-    --exclude=.github \
-    --exclude=build.sh \
-    --exclude=README.md \
-    --exclude=LICENSE \
-    --exclude="$PACKAGES_CONF" \
-    --exclude="$CONFIG_SCRIPT" \
-    --exclude="$OUTDIR" \
-    -vcf - . | tar -C "$WORKDIR/rootfs-overlay/" -xf -
+step "Installing packages..."
 if [ -f "$PACKAGES_CONF" ]; then
     readarray -t TO_INSTALL < <(sed -n 's/^+//p' "$PACKAGES_CONF" | sort -u)
     readarray -t TO_REMOVE < <(sed -n 's/^-//p' "$PACKAGES_CONF" | sort -u)
@@ -203,19 +247,49 @@ else
     TO_INSTALL=()
     TO_REMOVE=()
 fi
+if should_build_layer packages_layer; then
+    step "== Building =="
+    open_layer packages_layer
+    run_chroot "$WORKDIR/merged" "$(declare -f run_in_chroot); run_in_chroot '${TO_INSTALL[*]}' '${TO_REMOVE[*]}'"
+    close_layers
+fi
+register_layer packages_layer
 
-step "Chroot into rootfs..."
-chroot "$WORKDIR/rootfs-overlay/" /qemu-aarch64-static /bin/bash -c "$(declare -f run_in_chroot); run_in_chroot '${TO_INSTALL[*]}' '${TO_REMOVE[*]}'"
+
+step "Loading project files..."
+if should_build_layer files_layer; then
+    step "== Building =="
+    open_layer files_layer
+    tar -C "$PWD" \
+        --exclude-vcs \
+        --exclude=.github \
+        --exclude=build.sh \
+        --exclude=README.md \
+        --exclude=LICENSE \
+        --exclude="$PACKAGES_CONF" \
+        --exclude="$CONFIG_SCRIPT" \
+        --exclude="$OUTDIR" \
+        -vcf - . | tar -C "$WORKDIR/merged/" -xf -
+    close_layers
+fi
+register_layer files_layer
+
 if [ -f "$CONFIG_SCRIPT" ]; then
     step "Running customization hook..."
-    chroot "$WORKDIR/rootfs-overlay/" /qemu-aarch64-static /bin/bash -c "$(cat "$CONFIG_SCRIPT")"
+    if should_build_layer configuration_layer; then
+        step "== Building =="
+        open_layer configuration_layer
+        run_chroot "$WORKDIR/merged" "$(cat "$CONFIG_SCRIPT")"
+        close_layers
+    fi
+    register_layer configuration_layer
 fi
 
 step "Creating output files..."
-mkdir "$WORKDIR/output/"
-cp -Rv "$WORKDIR/rootfs-overlay/boot/firmware/"* "$WORKDIR/output/"
-unmount_chroot
-mksquashfs "$WORKDIR/rootfs-overlay/" "$WORKDIR/output/$BUILD_NAME.squashfs" -comp xz -Xbcj arm
+mkdir -p "$WORKDIR/output/"
+mount_layers
+mksquashfs "$WORKDIR/merged/" "$WORKDIR/output/$BUILD_NAME.squashfs" -comp xz -Xbcj arm64 -Xdict-size 100% -b 1M -noappend
+close_layers
 
 cat > "$WORKDIR/output/cmdline.txt" << EOF
 console=serial0,115200 console=tty1 boot=live live-media-path=/ live-image=$BUILD_NAME.squashfs noprompt noeject persistence
@@ -226,7 +300,7 @@ mkdir -p "$OUTDIR"
 tar -C "$WORKDIR/output/" -cvzf "$OUTDIR/$BUILD_NAME.tar.gz" .
 
 step "Cleaning up..."
-unmount_rootfs
+unmount_all
 
 if [ -n "$DEPLOY_TARGET" ]; then
     step "Deploying $OUTDIR/$BUILD_NAME.tar.gz to $DEPLOY_TARGET over SSH"
