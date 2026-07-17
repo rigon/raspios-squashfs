@@ -284,22 +284,23 @@ if [ -f "$CONFIG_SCRIPT" ]; then
 fi
 
 step "Creating output files..."
+rm "$WORKDIR/output/$BUILD_NAME.squashfs"
 mkdir -p "$WORKDIR/output/"
 cp -Rv "$WORKDIR/bootfs/"* "$WORKDIR/output/"
 mount_layers
 cp -Rv "$WORKDIR/merged/boot/firmware/"* "$WORKDIR/output/"
 mksquashfs "$WORKDIR/merged/" "$WORKDIR/output/$BUILD_NAME.squashfs" \
   -wildcards -e "boot/firmware/*" \
-  -comp xz -Xbcj arm64 -Xdict-size 100% -b 1M -noappend
+  -comp xz -Xbcj arm64 -Xdict-size 100% -b 1M
 close_layers
 
 cat > "$WORKDIR/output/cmdline.txt" << EOF
 console=serial0,115200 console=tty1 boot=live live-media-path=/ live-image=$BUILD_NAME.squashfs noprompt noeject persistence
 EOF
 
-step "Creating output archive $OUTDIR/$BUILD_NAME.tar.gz"
+step "Creating output archive $OUTDIR/$BUILD_NAME.tar"
 mkdir -p "$OUTDIR"
-tar -C "$WORKDIR/output/" -cvzf "$OUTDIR/$BUILD_NAME.tar.gz" .
+tar -C "$WORKDIR/output/" -cvf "$OUTDIR/$BUILD_NAME.tar" .
 
 step "Cleaning up..."
 unmount_all
