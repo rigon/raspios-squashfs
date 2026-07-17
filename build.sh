@@ -164,7 +164,6 @@ mount_chroot() {
     mount -t sysfs sys "$root/sys"
     mount --bind /dev "$root/dev"
     mount --bind /dev/pts "$root/dev/pts"
-    mount --bind "$WORKDIR/bootfs" "$root/boot/firmware"
     touch "$root/qemu-aarch64-static"
     mount --bind /usr/bin/qemu-aarch64-static "$root/qemu-aarch64-static"
 }
@@ -173,7 +172,6 @@ umount_chroot() {
     local root="$1"
     umount -lf "$root/qemu-aarch64-static" 2>/dev/null || true
     rm -f "$root/qemu-aarch64-static"
-    umount -lf "$root/boot/firmware" 2>/dev/null || true
     umount -lf "$root/dev/pts" 2>/dev/null || true
     umount -lf "$root/dev" 2>/dev/null || true
     umount -lf "$root/sys" 2>/dev/null || true
@@ -287,8 +285,12 @@ fi
 
 step "Creating output files..."
 mkdir -p "$WORKDIR/output/"
+cp -Rv "$WORKDIR/bootfs/"* "$WORKDIR/output/"
 mount_layers
-mksquashfs "$WORKDIR/merged/" "$WORKDIR/output/$BUILD_NAME.squashfs" -comp xz -Xbcj arm64 -Xdict-size 100% -b 1M -noappend
+cp -Rv "$WORKDIR/merged/boot/firmware/"* "$WORKDIR/output/"
+mksquashfs "$WORKDIR/merged/" "$WORKDIR/output/$BUILD_NAME.squashfs" \
+  -wildcards -e "boot/firmware/*" \
+  -comp xz -Xbcj arm64 -Xdict-size 100% -b 1M -noappend
 close_layers
 
 cat > "$WORKDIR/output/cmdline.txt" << EOF
