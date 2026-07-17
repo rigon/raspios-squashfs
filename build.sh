@@ -306,9 +306,9 @@ step "Cleaning up..."
 unmount_all
 
 if [ -n "$DEPLOY_TARGET" ]; then
-    step "Deploying $OUTDIR/$BUILD_NAME.tar.gz to $DEPLOY_TARGET over SSH"
+    step "Deploying $OUTDIR/$BUILD_NAME.tar to $DEPLOY_TARGET over SSH"
     ssh "$DEPLOY_TARGET" 'set -e; MEDIUM=/run/live/medium;
         sudo mount -o remount,rw "$MEDIUM";
         sudo tar -C "$MEDIUM" -xzf -;
-        sudo systemctl reboot' < "$OUTDIR/$BUILD_NAME.tar.gz"
+        sudo systemctl reboot' < "$OUTDIR/$BUILD_NAME.tar"
 fi
