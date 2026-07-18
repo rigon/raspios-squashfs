@@ -31,7 +31,7 @@ done
 shift $((OPTIND - 1))
 
 # Ensure all required host commands are available
-REQUIRED_CMDS="xz losetup mksquashfs unzip tar qemu-aarch64-static ssh"
+REQUIRED_CMDS="xz losetup mksquashfs unzip tar qemu-aarch64-static ssh sha256sum"
 for cmd in $REQUIRED_CMDS; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
         echo "Error: missing required command: $cmd"
@@ -116,33 +116,42 @@ EOF
 }
 
 
+# === layer functions ===
+
 LAYERS=""
+LAYERS_HASH=""
 
 init_layers() {
     local base_path="$1"
     LAYERS="$base_path"
+    LAYERS_HASH="$2"
+}
+
+layer_id() {
+    echo $LAYERS_HASH $@ | sha256sum | cut -c1-12
 }
 
 should_build_layer() {
-    local name="$1"
-    local base="$WORKDIR/layers/$name"
-    [ ! -d "$base" ]
+    local id="$1"
+    [ ! -d "$WORKDIR/layers/$id" ] || [ -e "$WORKDIR/layers/.$id.building" ]
 }
 
 open_layer() {
-    local name="$1"
-    local path="$WORKDIR/layers/$name/"
-
+    local id="$1"
+    local path="$WORKDIR/layers/$id/"
+    rm -rf "$path"
     mkdir -p "$path" "$WORKDIR/work" "$WORKDIR/merged"
+    touch "$WORKDIR/layers/.$id.building"
 
-    mount -t overlay "$name" \
+    mount -t overlay "$id" \
         -o lowerdir="$LAYERS",upperdir="$path",workdir="$WORKDIR/work" \
         "$WORKDIR/merged"
 }
 
 register_layer() {
-    local name="$1"
-    LAYERS="$WORKDIR/layers/$name/:$LAYERS"
+    local id="$1"
+    LAYERS="$WORKDIR/layers/$id/:$LAYERS"
+    LAYERS_HASH="$id"
 }
 
 mount_layers() {
@@ -156,7 +165,14 @@ close_layers() {
     rm -rf "$WORKDIR/work" "$WORKDIR/merged"
 }
 
+commit_layer() {
+    local id="$1"
+    rm "$WORKDIR/layers/.$id.building"
+    close_layers
+}
 
+
+# === chroot functions ===
 
 mount_chroot() {
     local root="$1"
@@ -199,6 +215,8 @@ unmount_all() {
 }
 
 
+# === Main script ===
+
 case "$IMAGE_PATH" in
     *.img.xz) IMAGE_NAME=$(basename "$IMAGE_PATH" .img.xz) ;;
     *.zip)    IMAGE_NAME=$(basename "$IMAGE_PATH" .zip) ;;
@@ -235,8 +253,10 @@ step "Mounting partitions using device $LOOP_DEVICE"
 mkdir -p "$WORKDIR/rootfs/" "$WORKDIR/bootfs/"
 mount "${LOOP_DEVICE}p1" "$WORKDIR/bootfs/"
 mount "${LOOP_DEVICE}p2" "$WORKDIR/rootfs/"
-init_layers "$WORKDIR/rootfs/"
+init_layers "$WORKDIR/rootfs/" $(layer_id $(sha256sum "$IMAGE_PATH"))
 
+
+# === Install packages ===
 step "Installing packages..."
 if [ -f "$PACKAGES_CONF" ]; then
     readarray -t TO_INSTALL < <(sed -n 's/^+//p' "$PACKAGES_CONF" | sort -u)
@@ -245,19 +265,22 @@ else
     TO_INSTALL=()
     TO_REMOVE=()
 fi
-if should_build_layer packages_layer; then
-    step "== Building =="
-    open_layer packages_layer
+PACKAGES_ID=$(layer_id $(declare -f run_in_chroot) install=${TO_INSTALL[*]} remove=${TO_REMOVE[*]})
+if should_build_layer "$PACKAGES_ID"; then
+    step "== Building $PACKAGES_ID =="
+    open_layer "$PACKAGES_ID"
     run_chroot "$WORKDIR/merged" "$(declare -f run_in_chroot); run_in_chroot '${TO_INSTALL[*]}' '${TO_REMOVE[*]}'"
-    close_layers
+    commit_layer "$PACKAGES_ID"
 fi
-register_layer packages_layer
+register_layer "$PACKAGES_ID"
 
 
+# === Project files ===
 step "Loading project files..."
-if should_build_layer files_layer; then
-    step "== Building =="
-    open_layer files_layer
+FILES_ID=$(layer_id $RANDOM $RANDOM $RANDOM)    # TODO: this always create a new ID
+if should_build_layer "$FILES_ID"; then
+    step "== Building $FILES_ID =="
+    open_layer "$FILES_ID"
     tar -C "$PWD" \
         --exclude-vcs \
         --exclude=.github \
@@ -268,21 +291,26 @@ if should_build_layer files_layer; then
         --exclude="$CONFIG_SCRIPT" \
         --exclude="$OUTDIR" \
         -vcf - . | tar -C "$WORKDIR/merged/" -xf -
-    close_layers
+    commit_layer "$FILES_ID"
 fi
-register_layer files_layer
+register_layer "$FILES_ID"
 
+
+# === Configuration script ===
 if [ -f "$CONFIG_SCRIPT" ]; then
-    step "Running customization hook..."
-    if should_build_layer configuration_layer; then
-        step "== Building =="
-        open_layer configuration_layer
+    step "Running cconfiguration script..."
+    CONFIG_ID=$(layer_id "config:$(cat "$CONFIG_SCRIPT")")
+    if should_build_layer "$CONFIG_ID"; then
+        step "== Building $CONFIG_ID =="
+        open_layer "$CONFIG_ID"
         run_chroot "$WORKDIR/merged" "$(cat "$CONFIG_SCRIPT")"
-        close_layers
+        commit_layer "$CONFIG_ID"
     fi
-    register_layer configuration_layer
+    register_layer "$CONFIG_ID"
 fi
 
+
+# === Output files ===
 step "Creating output files..."
 rm "$WORKDIR/output/$BUILD_NAME.squashfs"
 mkdir -p "$WORKDIR/output/"
