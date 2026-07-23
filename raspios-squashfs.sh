@@ -146,36 +146,34 @@ do_export() {
     step "Exporting $BUILD_NAME"
 
     local container=""
+    local export_dir=""
     export_cleanup() {
         [ -n "$container" ] && docker rm -f "$container" >/dev/null 2>&1 || true
+        [ -n "$export_dir" ] && rm -rf "$export_dir"
     }
     trap export_cleanup EXIT
 
     container=$(docker create "$IMAGE" /bin/sh)
-
-    local output="$WORKDIR/output"
-    rm -rf "$output"
-    mkdir -p "$output"
+    export_dir=$(mktemp -d "$WORKDIR.export.XXXXXX")
 
     step "Collecting boot files"
-    docker cp "$container:/boot/firmware/." "$output/"
+    docker cp "$container:/boot/firmware/." "$export_dir/"
 
     step "Creating $BUILD_NAME.squashfs"
     docker export "$container" \
         | tar --delete --wildcards -f - '*boot/firmware/*' \
         | sqfstar -comp xz -Xbcj arm64 -Xdict-size 100% -b 1M \
-            "$output/$BUILD_NAME.squashfs"
+            "$export_dir/$BUILD_NAME.squashfs"
 
-    cat > "$output/cmdline.txt" << EOF
+    cat > "$export_dir/cmdline.txt" << EOF
 console=serial0,115200 console=tty1 boot=live live-media-path=/ live-image=$BUILD_NAME.squashfs noprompt noeject persistence
 EOF
 
     step "Creating output archive $OUTDIR/$BUILD_NAME.tar"
     mkdir -p "$OUTDIR"
-    tar -C "$output" -cf "$OUTDIR/$BUILD_NAME.tar" .
+    tar -C "$export_dir" -cf "$OUTDIR/$BUILD_NAME.tar" .
 
     step "Cleaning up"
-    rm -rf "$output"
     export_cleanup
     trap - EXIT
 }
