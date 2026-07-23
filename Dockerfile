@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Base image ref is injected by raspios-squashfs.sh (raspios-base:<source name>)
-ARG BASE
+ARG BASE=raspios-base:latest
 FROM ${BASE}
 
 # ============================================================
