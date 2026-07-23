@@ -84,6 +84,9 @@ do_import() {
     }
     trap import_cleanup EXIT
 
+    # Ask for sudo before doing work
+    sudo -v
+
     step "Extracting $source"
     local name
     case "$source" in
