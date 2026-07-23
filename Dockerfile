@@ -3,10 +3,6 @@
 ARG BASE=raspios-base:latest
 FROM ${BASE}
 
-# ============================================================
-# Required system prep for squashfs live boot — keep this part
-# ============================================================
-
 # Refresh apt according to the running release
 RUN . /etc/os-release && case "$VERSION_CODENAME" in \
         buster) \
@@ -18,46 +14,16 @@ RUN . /etc/os-release && case "$VERSION_CODENAME" in \
             apt-get update ;; \
     esac
 
-# live-boot enables booting from squashfs. The initramfs must be generated
-# with MODULES=most so it contains squashfs/overlay support; restore
-# MODULES=dep afterwards. NOTE: wrap any later kernel upgrade in the same
-# MODULES dance, or its initramfs won't boot live.
-RUN sed -i 's/^MODULES=dep/MODULES=most/' /etc/initramfs-tools/initramfs.conf \
- && apt-get install -y live-boot \
- && sed -i 's/^MODULES=most/MODULES=dep/' /etc/initramfs-tools/initramfs.conf
+ARG TO_INSTALL=""
+ARG TO_REMOVE=""
+RUN sed -i 's/^MODULES=dep/MODULES=most/' /etc/initramfs-tools/initramfs.conf && \
+    apt-get upgrade -y live-boot+ $TO_INSTALL $TO_REMOVE && \
+    sed -i 's/^MODULES=most/MODULES=dep/' /etc/initramfs-tools/initramfs.conf
 
-# ============================================================
-# Your customizations go here
-# ============================================================
+RUN apt-get autoremove --purge -y && apt-get clean
+# && rm -rf /var/lib/apt/lists/*
 
-# Packages to install
-RUN apt-get install -y --no-install-recommends \
-        vim \
-        htop
-
-# Packages to remove
-RUN apt-get remove --purge -y \
-        triggerhappy
-
-# Files to overlay onto the image (paths are relative to the build context,
-# and land at the same path in the image)
-# COPY files/ /
-
-# Anything else you would put in a customization script
-# RUN systemctl enable ssh
-
-# The boot partition lives at /boot/firmware in this image, so boot
-# configuration can be customized here too:
-# COPY config.txt /boot/firmware/config.txt
-# RUN sed -i 's/$/ dtoverlay=disable-bt/' /boot/firmware/config.txt
-
-# ============================================================
-# Required finalization — keep this part last
-# ============================================================
-
-RUN apt-get autoremove --purge -y && apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# Override fstab: the squashfs is the (read-only) root, /tmp on tmpfs
+# Override fstab
 RUN cat > /etc/fstab << 'EOF'
 # /dev/mmcblk0p1  /boot/firmware  vfat    defaults  0 0
 proc            /proc           proc    defaults  0 0

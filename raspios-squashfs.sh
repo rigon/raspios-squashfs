@@ -16,6 +16,7 @@ BASE_IMAGE="raspios-base"       # imported base image
 IMAGE="raspios"                 # customized image
 DOCKERFILE="Dockerfile"         # build recipe
 OUTDIR="out"                    # output directory
+PACKAGES_CONF="packages.conf"   # package changes applied during build
 PLATFORM="linux/arm64"
 WORKDIR="/tmp/raspios-squashfs-build"
 
@@ -41,6 +42,7 @@ Options:
   -f <file>     Dockerfile to build from (default: $DOCKERFILE)
   -n <name>     Build name (default: the image's source name)
   -o <dir>      Output directory (default: $OUTDIR)
+  -p <file>     List of packages to install/remove (default: $PACKAGES_CONF)
   -h            Show this help
 EOF
 }
@@ -141,10 +143,19 @@ do_build() {
         exit 1
     fi
 
+    # List of packages
+    local TO_INSTALL=() TO_REMOVE=()
+    if [ -f "$PACKAGES_CONF" ]; then
+        readarray -t TO_INSTALL < <(sed -n 's/^+//p' "$PACKAGES_CONF" | sort -u)
+        readarray -t TO_REMOVE < <(sed -n 's/^-//p' "$PACKAGES_CONF" | sort -u)
+    fi
+
     step "Building image $IMAGE:$BUILD_NAME from $DOCKERFILE"
     docker buildx build \
         --platform "$PLATFORM" \
         --build-arg BASE="$BASE_IMAGE:$BUILD_NAME" \
+        --build-arg TO_INSTALL="${TO_INSTALL[*]/%/+}" \
+        --build-arg TO_REMOVE="${TO_REMOVE[*]/%/-}" \
         -f "$DOCKERFILE" \
         --tag "$IMAGE:$BUILD_NAME" \
         --load \
@@ -212,13 +223,14 @@ fi
 COMMAND="$1"
 shift
 
-while getopts ":b:t:f:n:o:h" opt; do
+while getopts ":b:t:f:n:o:p:h" opt; do
     case "$opt" in
         b) BASE_IMAGE="$OPTARG" ;;
         t) IMAGE="$OPTARG" ;;
         f) DOCKERFILE="$OPTARG" ;;
         n) BUILD_NAME="$OPTARG" ;;
         o) OUTDIR="$OPTARG" ;;
+        p) PACKAGES_CONF="$OPTARG" ;;
         h) usage; exit 0 ;;
         :) echo "Error: option -$OPTARG requires an argument."; usage; exit 1 ;;
         \?) echo "Error: unknown option -$OPTARG."; usage; exit 1 ;;
