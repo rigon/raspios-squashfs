@@ -46,7 +46,7 @@ EOF
 }
 
 # Ensure all required host commands are available
-REQUIRED_CMDS="docker xz unzip tar sqfstar losetup sha256sum"
+REQUIRED_CMDS="docker xz unzip tar sqfstar losetup"
 for cmd in $REQUIRED_CMDS; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
         echo "Error: missing required command: $cmd"
@@ -75,30 +75,32 @@ do_import() {
         *) echo "Error: Source image must be a .img.xz or .zip file."; exit 1 ;;
     esac
 
-    local dir loop=""
-    mount_dir=$(mktemp -d "$WORKDIR.import.XXXXXX")
+    local loop=""
+    local import_dir
+    import_dir=$(mktemp -d "$WORKDIR.import.XXXXXX")
 
     import_cleanup() {
-        sudo umount "$mount_dir/boot/firmware" 2>/dev/null || true
-        sudo umount "$mount_dir" 2>/dev/null || true
+        sudo umount "$import_dir/rootfs/boot/firmware" 2>/dev/null || true
+        sudo umount "$import_dir/rootfs/" 2>/dev/null || true
         [ -n "$loop" ] && sudo losetup -d "$loop" 2>/dev/null || true
-        rm -rf "$mount_dir"
+        rm -rf "$import_dir"
     }
     trap import_cleanup EXIT
 
     step "Extracting $source"
     case "$source" in
-        *.img.xz) xz -c -d "$source" > "$mount_dir/image.img" ;;
-        *.zip)    unzip -p "$source" "$name.img" > "$mount_dir/image.img" ;;
+        *.img.xz) xz -c -d "$source" > "$import_dir/$name.img" ;;
+        *.zip)    unzip -p "$source" "$name.img" > "$import_dir/$name.img" ;;
     esac
 
     step "Mounting partitions"
-    loop=$(sudo losetup -f --partscan --show "$mount_dir/image.img")
-    sudo mount -o ro "${loop}p2" "$mount_dir"
-    sudo mount -o ro "${loop}p1" "$mount_dir/boot/firmware"
+    loop=$(sudo losetup -f --partscan --show "$import_dir/$name.img")
+    mkdir -p "$import_dir/rootfs/"
+    sudo mount -o ro "${loop}p2" "$import_dir/rootfs/"
+    sudo mount -o ro "${loop}p1" "$import_dir/rootfs/boot/firmware"
 
     step "Importing as base image $BASE_IMAGE"
-    sudo tar -C "$mount_dir" -cf - . \
+    sudo tar -C "$import_dir/rootfs/" -cf - . \
         | docker import --platform "$PLATFORM" - "$BASE_IMAGE"
 
     import_cleanup
