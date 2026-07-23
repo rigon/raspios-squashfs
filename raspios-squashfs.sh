@@ -81,20 +81,21 @@ do_import() {
         return
     fi
 
-    local loop=""
-    local import_dir
+    # Ask for sudo before doing work
+    sudo -v
+    
+    # Global: this function's scope unwinds before the cleanup trap runs (locals would be empty).
+    loop_device=""
     import_dir=$(mktemp -d "$WORKDIR.import.XXXXXX")
 
     import_cleanup() {
+        step "Cleaning up"
         sudo umount "$import_dir/rootfs/boot/firmware" 2>/dev/null || true
         sudo umount "$import_dir/rootfs/" 2>/dev/null || true
-        [ -n "$loop" ] && sudo losetup -d "$loop" 2>/dev/null || true
+        [ -n "$loop_device" ] && sudo losetup -d "$loop_device" 2>/dev/null || true
         rm -rf "$import_dir"
     }
     trap import_cleanup EXIT
-
-    # Ask for sudo before doing work
-    sudo -v
 
     step "Extracting $source"
     local name
@@ -109,10 +110,10 @@ do_import() {
     esac
 
     step "Mounting partitions"
-    loop=$(sudo losetup -f --partscan --show "$import_dir/$name.img")
+    loop_device=$(sudo losetup -f --partscan --show "$import_dir/$name.img")
     mkdir -p "$import_dir/rootfs/"
-    sudo mount -o ro "${loop}p2" "$import_dir/rootfs/"
-    sudo mount -o ro "${loop}p1" "$import_dir/rootfs/boot/firmware"
+    sudo mount -o ro "${loop_device}p2" "$import_dir/rootfs/"
+    sudo mount -o ro "${loop_device}p1" "$import_dir/rootfs/boot/firmware"
 
     step "Importing as base image $BASE_IMAGE:$BUILD_NAME"
     sudo tar -C "$import_dir/rootfs/" -cf - . \
@@ -166,9 +167,11 @@ do_export() {
 
     step "Exporting $BUILD_NAME"
 
-    local container=""
-    local export_dir=""
+    # Global: this function's scope unwinds before the cleanup trap runs (locals would be empty).
+    container=""
+    export_dir=""
     export_cleanup() {
+        step "Cleaning up"
         [ -n "$container" ] && docker rm -f "$container" >/dev/null 2>&1 || true
         [ -n "$export_dir" ] && rm -rf "$export_dir"
     }
@@ -194,7 +197,6 @@ EOF
     mkdir -p "$OUTDIR"
     tar -C "$export_dir" -cf "$OUTDIR/$BUILD_NAME.tar" .
 
-    step "Cleaning up"
     export_cleanup
     trap - EXIT
 }
