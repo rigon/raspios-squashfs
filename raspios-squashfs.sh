@@ -72,6 +72,15 @@ do_import() {
         echo "Error: a build name (-n) or a source file must be provided."
         exit 1
     fi
+
+    # Skip base image import if already exists
+    if docker image inspect "$BASE_IMAGE:$BUILD_NAME" >/dev/null 2>&1; then
+        step "Base image $BASE_IMAGE:$BUILD_NAME already present, skipping import"
+        echo "  To re-import, remove it first: docker rmi $BASE_IMAGE:$BUILD_NAME"
+        docker tag "$BASE_IMAGE:$BUILD_NAME" "$BASE_IMAGE:latest"
+        return
+    fi
+
     local loop=""
     local import_dir
     import_dir=$(mktemp -d "$WORKDIR.import.XXXXXX")
