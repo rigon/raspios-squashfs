@@ -12,8 +12,8 @@
 
 set -e -o pipefail
 
-BASE_IMAGE="raspios-base"       # base image, as imported from the official one
-IMAGE="raspios"                 # customized image, as built from the Dockerfile
+BASE_IMAGE="raspios-base"       # imported base image
+IMAGE="raspios"                 # customized image
 DOCKERFILE="Dockerfile"         # build recipe
 OUTDIR="out"                    # output directory
 PLATFORM="linux/arm64"
@@ -36,10 +36,10 @@ Commands:
   all <image.img.xz|image.zip>      import + build + export
 
 Options:
-  -b <image>    Base image tag (default: $BASE_IMAGE)
-  -t <image>    Built image tag (default: $IMAGE)
+  -b <image>    Base image name (default: $BASE_IMAGE)
+  -t <image>    Built image name (default: $IMAGE)
   -f <file>     Dockerfile to build from (default: $DOCKERFILE)
-  -n <name>     Build name, used for the output files (default: built image tag)
+  -n <name>     Build name (default: the image's source name)
   -o <dir>      Output directory (default: $OUTDIR)
   -h            Show this help
 EOF
@@ -58,7 +58,6 @@ done
 # === import base image ===
 do_import() {
     local source="$1"
-    local name
 
     if [ -z "$source" ]; then
         echo "Error: You must supply the source image file."
@@ -69,12 +68,10 @@ do_import() {
         echo "Error: Source image '$source' not found."
         exit 1
     fi
-    case "$source" in
-        *.img.xz) name=$(basename "$source" .img.xz) ;;
-        *.zip)    name=$(basename "$source" .zip) ;;
-        *) echo "Error: Source image must be a .img.xz or .zip file."; exit 1 ;;
-    esac
-
+    if [ -z "$BUILD_NAME" ]; then
+        echo "Error: a build name (-n) or a source file must be provided."
+        exit 1
+    fi
     local loop=""
     local import_dir
     import_dir=$(mktemp -d "$WORKDIR.import.XXXXXX")
@@ -88,9 +85,15 @@ do_import() {
     trap import_cleanup EXIT
 
     step "Extracting $source"
+    local name
     case "$source" in
-        *.img.xz) xz -c -d "$source" > "$import_dir/$name.img" ;;
-        *.zip)    unzip -p "$source" "$name.img" > "$import_dir/$name.img" ;;
+        *.img.xz)
+            name=$(basename "$source" .img.xz)
+            xz -c -d "$source" > "$import_dir/$name.img" ;;
+        *.zip)
+            name=$(basename "$source" .zip)
+            unzip -p "$source" "$name.img" > "$import_dir/$name.img" ;;
+        *) echo "Error: source image must be a .img.xz or .zip file."; exit 1 ;;
     esac
 
     step "Mounting partitions"
@@ -99,9 +102,10 @@ do_import() {
     sudo mount -o ro "${loop}p2" "$import_dir/rootfs/"
     sudo mount -o ro "${loop}p1" "$import_dir/rootfs/boot/firmware"
 
-    step "Importing as base image $BASE_IMAGE"
+    step "Importing as base image $BASE_IMAGE:$BUILD_NAME"
     sudo tar -C "$import_dir/rootfs/" -cf - . \
-        | docker import --platform "$PLATFORM" - "$BASE_IMAGE"
+        | docker import --platform "$PLATFORM" - "$BASE_IMAGE:$BUILD_NAME"
+    docker tag "$BASE_IMAGE:$BUILD_NAME" "$BASE_IMAGE:latest"
 
     import_cleanup
     trap - EXIT
@@ -110,39 +114,44 @@ do_import() {
 
 # === build customized image ===
 do_build() {
+    if [ -z "$BUILD_NAME" ]; then
+        echo "Error: a build name (-n) must be provided."
+        exit 1
+    fi
     if [ ! -f "$DOCKERFILE" ]; then
         echo "Error: '$DOCKERFILE' not found."
         exit 1
     fi
-    if ! docker image inspect "$BASE_IMAGE" >/dev/null 2>&1; then
-        echo "Error: base image '$BASE_IMAGE' not found. Import it first:"
+    if ! docker image inspect "$BASE_IMAGE:$BUILD_NAME" >/dev/null 2>&1; then
+        echo "Error: base image '$BASE_IMAGE:$BUILD_NAME' not found. Import it first:"
         echo "  $0 import <image.img.xz>"
         exit 1
     fi
 
-    step "Building image $IMAGE from $DOCKERFILE"
+    step "Building image $IMAGE:$BUILD_NAME from $DOCKERFILE"
     docker buildx build \
         --platform "$PLATFORM" \
-        --build-arg BASE="$BASE_IMAGE" \
+        --build-arg BASE="$BASE_IMAGE:$BUILD_NAME" \
         -f "$DOCKERFILE" \
-        --tag "$IMAGE" \
+        --tag "$IMAGE:$BUILD_NAME" \
         --load \
         .
+    docker tag "$IMAGE:$BUILD_NAME" "$IMAGE:latest"
 }
 
 
 # === export output archive ===
 do_export() {
-    if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
-        echo "Error: image '$IMAGE' not found. Build it first:"
-        echo "  $0 build"
+    if [ -z "$BUILD_NAME" ]; then
+        echo "Error: a build name (-n) must be provided."
+        exit 1
+    fi
+    if ! docker image inspect "$IMAGE:$BUILD_NAME" >/dev/null 2>&1; then
+        echo "Error: image '$IMAGE:$BUILD_NAME' not found. Build it first:"
+        echo "  $0 build -n $BUILD_NAME"
         exit 1
     fi
 
-    if [ -z "$BUILD_NAME" ]; then
-        BUILD_NAME="${IMAGE%%:*}"
-        BUILD_NAME="${BUILD_NAME##*/}"
-    fi
     step "Exporting $BUILD_NAME"
 
     local container=""
@@ -153,7 +162,7 @@ do_export() {
     }
     trap export_cleanup EXIT
 
-    container=$(docker create "$IMAGE" /bin/sh)
+    container=$(docker create "$IMAGE:$BUILD_NAME" /bin/sh)
     export_dir=$(mktemp -d "$WORKDIR.export.XXXXXX")
 
     step "Collecting boot files"
@@ -203,12 +212,21 @@ while getopts ":b:t:f:n:o:h" opt; do
 done
 shift $((OPTIND - 1))
 
+filename="$1"
+if [ -z "$BUILD_NAME" ]; then
+    case "$filename" in
+        *.img.xz) BUILD_NAME=$(basename "$filename" .img.xz) ;;
+        *.zip)    BUILD_NAME=$(basename "$filename" .zip) ;;
+    esac
+    BUILD_NAME="${BUILD_NAME//[^A-Za-z0-9_.-]/_}"
+fi
+
 case "$COMMAND" in
-    import)  do_import "$1" ;;
+    import)  do_import "$filename" ;;
     build)   do_build ;;
     export)  do_export ;;
     rebuild) do_build; do_export ;;
-    all)     do_import "$1"; do_build; do_export ;;
+    all)     do_import "$filename"; do_build; do_export ;;
     help|--help|-h) usage ;;
     *) echo "Error: unknown command '$COMMAND'."; usage; exit 1 ;;
 esac

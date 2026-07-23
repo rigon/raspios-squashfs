@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Base image tag is injected by build.sh (raspios-base:<source image hash>)
+# Base image ref is injected by raspios-squashfs.sh (raspios-base:<source name>)
 ARG BASE
 FROM ${BASE}
 
