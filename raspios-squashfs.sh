@@ -17,6 +17,7 @@ IMAGE="raspios"                 # customized image
 DOCKERFILE="Dockerfile"         # build recipe
 OUTDIR="out"                    # output directory
 PACKAGES_CONF="packages.conf"   # package changes applied during build
+BUILD_ARGS=()                   # extra --build-arg values for the build
 PLATFORM="linux/arm64"
 WORKDIR="/tmp/raspios-squashfs-build"
 
@@ -37,12 +38,14 @@ Commands:
   all <image.img.xz|image.zip>      import + build + export
 
 Options:
+  -a <arg>      Build arg, repeatable: NAME=value, or NAME alone to take
+                the value from the environment
   -b <image>    Base image name (default: $BASE_IMAGE)
-  -t <image>    Built image name (default: $IMAGE)
   -f <file>     Dockerfile to build from (default: $DOCKERFILE)
   -n <name>     Build name (default: the image's source name)
   -o <dir>      Output directory (default: $OUTDIR)
   -p <file>     List of packages to install/remove (default: $PACKAGES_CONF)
+  -t <image>    Built image name (default: $IMAGE)
   -h            Show this help
 EOF
 }
@@ -151,6 +154,7 @@ do_build() {
         --platform "$PLATFORM" \
         --tag "$IMAGE:$BUILD_NAME" \
         --tag "$IMAGE:latest" \
+        "${BUILD_ARGS[@]}" \
         --load \
         -f - \
         . <<END_DOCKERFILE
@@ -250,14 +254,15 @@ fi
 COMMAND="$1"
 shift
 
-while getopts ":b:t:f:n:o:p:h" opt; do
+while getopts ":a:b:f:n:o:p:t:h" opt; do
     case "$opt" in
+        a) BUILD_ARGS+=(--build-arg "$OPTARG") ;;
         b) BASE_IMAGE="$OPTARG" ;;
-        t) IMAGE="$OPTARG" ;;
         f) DOCKERFILE="$OPTARG" ;;
         n) BUILD_NAME="$OPTARG" ;;
         o) OUTDIR="$OPTARG" ;;
         p) PACKAGES_CONF="$OPTARG" ;;
+        t) IMAGE="$OPTARG" ;;
         h) usage; exit 0 ;;
         :) echo "Error: option -$OPTARG requires an argument."; usage; exit 1 ;;
         \?) echo "Error: unknown option -$OPTARG."; usage; exit 1 ;;
