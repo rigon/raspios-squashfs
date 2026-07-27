@@ -1,0 +1,35 @@
+# Multi-stage image; base stage comes from main script
+FROM base
+
+# Examples:
+
+# Set the hostname
+# RUN echo "my-pi" > /etc/hostname
+
+# Enable a service
+# RUN systemctl enable ssh
+
+# Install something not covered by packages.conf
+# RUN apt-get install -y --no-install-recommends htop
+
+# Add files from the build context (this directory)
+# COPY config.txt /boot/firmware/config.txt
+
+# Remove default pi user
+# RUN /usr/sbin/deluser --remove-home pi && \
+#     echo > /etc/subuid && \
+#     echo > /etc/subgid
+
+# Create a new user (configured for docker, subids and subgids are used by docker)
+# The password is passed in at build time:
+#     PASSWD=secret ./raspios-squashfs.sh build -a PASSWD
+# NOTE: build args land in `docker history` of the built image. The exported
+# squashfs only carries the /etc/shadow hash, so this leaks no further than the
+# local builder. Switch to `RUN --mount=type=secret` if that stops being
+# acceptable.
+# ARG PASSWD
+# RUN test -n "${PASSWD}" || { echo "Error: -a PASSWD is required"; exit 1; }; \
+#     /usr/sbin/useradd -m user && \
+#     /usr/sbin/usermod -aG sudo,docker user && \
+#     /usr/sbin/usermod --add-subuids 100000-165535 --add-subgids 100000-165535 user && \
+#     echo "user:${PASSWD}" | /usr/sbin/chpasswd

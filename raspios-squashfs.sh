@@ -133,10 +133,6 @@ do_build() {
         echo "Error: a build name (-n) must be provided."
         exit 1
     fi
-    if [ ! -f "$DOCKERFILE" ]; then
-        echo "Error: '$DOCKERFILE' not found."
-        exit 1
-    fi
     if ! docker image inspect "$BASE_IMAGE:$BUILD_NAME" >/dev/null 2>&1; then
         echo "Error: base image '$BASE_IMAGE:$BUILD_NAME' not found. Import it first:"
         echo "  $0 import <image.img.xz>"
@@ -150,17 +146,48 @@ do_build() {
         readarray -t TO_REMOVE < <(sed -n 's/^-//p' "$PACKAGES_CONF" | sort -u)
     fi
 
-    step "Building image $IMAGE:$BUILD_NAME from $DOCKERFILE"
+    step "Building image $IMAGE:$BUILD_NAME"
     docker buildx build \
         --platform "$PLATFORM" \
-        --build-arg BASE="$BASE_IMAGE:$BUILD_NAME" \
-        --build-arg TO_INSTALL="${TO_INSTALL[*]/%/+}" \
-        --build-arg TO_REMOVE="${TO_REMOVE[*]/%/-}" \
-        -f "$DOCKERFILE" \
         --tag "$IMAGE:$BUILD_NAME" \
+        --tag "$IMAGE:latest" \
         --load \
-        .
-    docker tag "$IMAGE:$BUILD_NAME" "$IMAGE:latest"
+        -f - \
+        . <<END_DOCKERFILE
+FROM $BASE_IMAGE:$BUILD_NAME AS base
+
+# Override fstab
+RUN cat > /etc/fstab << 'EOF'
+proc            /proc           proc    defaults  0 0
+tmpfs           /tmp            tmpfs   defaults  0 0
+EOF
+
+# Refresh apt according to the running release
+RUN . /etc/os-release && case "\$VERSION_CODENAME" in \
+        buster) \
+            sed -i.bak 's|deb.debian.org|archive.debian.org|g' /etc/apt/sources.list && \
+            apt-get update --allow-releaseinfo-change ;; \
+        bullseye|bookworm) \
+            apt-get update --allow-releaseinfo-change ;; \
+        *) \
+            apt-get update ;; \
+    esac
+
+RUN sed -i 's/^MODULES=dep/MODULES=most/' /etc/initramfs-tools/initramfs.conf
+RUN apt-get remove --purge --auto-remove -y ${TO_REMOVE[*]}
+RUN apt-get install -y live-boot
+RUN apt-get install -y ${TO_INSTALL[*]}
+RUN apt-get update -y
+RUN apt-get autoremove --purge -y && apt-get clean
+RUN sed -i 's/^MODULES=most/MODULES=dep/' /etc/initramfs-tools/initramfs.conf
+
+# RUN rm -rf /var/lib/apt/lists/*
+
+COPY . /
+
+# Append verbatim from '$DOCKERFILE'
+$(cat "$DOCKERFILE" 2>/dev/null || true)
+END_DOCKERFILE
 }
 
 

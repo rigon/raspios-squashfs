@@ -1,3 +1,4 @@
+.env
 out/
-customize.sh
+Dockerfile
 packages.conf
