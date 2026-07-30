@@ -214,26 +214,41 @@ do_export() {
     step "Exporting $BUILD_NAME"
 
     # Global: this function's scope unwinds before the cleanup trap runs (locals would be empty).
-    container=""
     export_dir=""
     export_cleanup() {
         step "Cleaning up"
-        [ -n "$container" ] && docker rm -f "$container" >/dev/null 2>&1 || true
         [ -n "$export_dir" ] && rm -rf "$export_dir"
     }
     trap export_cleanup EXIT
 
-    container=$(docker create "$IMAGE:$BUILD_NAME" /bin/sh)
     export_dir=$(mktemp -d "$WORKDIR.export.XXXXXX")
 
+    # The image is read through BuildKit's filesystem exporters to avoid runtime
+    # artifacts injected by docker:
+    #   - /.dockerenv (which makes systemd-detect-virt report "docker")
+    #   - /etc/hostname, /etc/hosts, /etc/resolv.conf
+
     step "Collecting boot files"
-    docker cp "$container:/boot/firmware/." "$export_dir/"
+    docker buildx build \
+        --platform "$PLATFORM" \
+        --output "type=local,dest=$export_dir" \
+        -f - \
+        . << END_DOCKERFILE
+FROM $IMAGE:$BUILD_NAME AS built
+FROM scratch
+COPY --from=built /boot/firmware/ /
+END_DOCKERFILE
 
     step "Creating $BUILD_NAME.squashfs"
-    docker export "$container" \
-        | tar --delete --wildcards -f - '*boot/firmware/*' \
+    echo "FROM $IMAGE:$BUILD_NAME" \
+        | docker buildx build \
+            --platform "$PLATFORM" \
+            --output "type=tar,dest=-" \
+            -f - \
+            . \
         | sqfstar -comp xz -Xbcj arm64 -Xdict-size 100% -b 1M \
-            "$export_dir/$BUILD_NAME.squashfs"
+            "$export_dir/$BUILD_NAME.squashfs" \
+            "boot/firmware/*"
 
     cat > "$export_dir/cmdline.txt" << EOF
 console=serial0,115200 console=tty1 boot=live live-media-path=/ live-image=$BUILD_NAME.squashfs noprompt noeject persistence
