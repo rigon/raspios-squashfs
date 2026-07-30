@@ -165,10 +165,7 @@ do_build() {
 FROM $BASE_IMAGE:$BUILD_NAME AS base
 
 # Override fstab
-RUN cat > /etc/fstab << 'EOF'
-proc            /proc           proc    defaults  0 0
-tmpfs           /tmp            tmpfs   defaults  0 0
-EOF
+RUN truncate -s 0 /etc/fstab
 
 # Refresh apt according to the running release
 RUN . /etc/os-release && case "\$VERSION_CODENAME" in \
