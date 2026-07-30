@@ -58,6 +58,10 @@ for cmd in $REQUIRED_CMDS; do
         exit 1
     fi
 done
+if ! docker buildx version >/dev/null 2>&1; then
+    echo "Error: docker buildx not available"
+    exit 1
+fi
 
 
 # === import base image ===
