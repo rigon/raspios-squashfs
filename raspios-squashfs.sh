@@ -7,6 +7,7 @@
 #   import <image.img.xz|image.zip>   Import an official image as base image
 #   build                             Build the customized image
 #   export                            Create the output archive
+#   deploy                            Unpack the archive on a running target
 #   rebuild                           build + export
 #   all <image.img.xz|image.zip>      import + build + export
 
@@ -18,6 +19,7 @@ DOCKERFILE="Dockerfile"         # build recipe
 OUTDIR="out"                    # output directory
 PACKAGES_CONF="packages.conf"   # package changes applied during build
 BUILD_ARGS=()                   # extra --build-arg values for the build
+DEPLOY_TARGET=""
 PLATFORM="linux/arm64"
 WORKDIR="/tmp/raspios-squashfs-build"
 
@@ -34,24 +36,26 @@ Commands:
                                     (uses sudo to mount the image)
   build                             Build the customized image from $DOCKERFILE
   export                            Create the output archive from the image
+  deploy                            Deploy the built image to a running target over ssh
   rebuild                           build + export
   all <image.img.xz|image.zip>      import + build + export
 
 Options:
-  -a <arg>      Build arg, repeatable: NAME=value, or NAME alone to take
-                the value from the environment
-  -b <image>    Base image name (default: $BASE_IMAGE)
-  -f <file>     Dockerfile to build from (default: $DOCKERFILE)
-  -n <name>     Build name (default: the image's source name)
-  -o <dir>      Output directory (default: $OUTDIR)
-  -p <file>     List of packages to install/remove (default: $PACKAGES_CONF)
-  -t <image>    Built image name (default: $IMAGE)
-  -h            Show this help
+  -a <arg>       Build arg, repeatable: NAME=value, or NAME alone to take
+                 the value from the environment
+  -b <image>     Base image name (default: $BASE_IMAGE)
+  -d [user@]host Ssh target for deployment
+  -f <file>      Dockerfile to build from (default: $DOCKERFILE)
+  -n <name>      Build name (default: the image's source name)
+  -o <dir>       Output directory (default: $OUTDIR)
+  -p <file>      List of packages to install/remove (default: $PACKAGES_CONF)
+  -t <image>     Built image name (default: $IMAGE)
+  -h             Show this help
 EOF
 }
 
 # Ensure all required host commands are available
-REQUIRED_CMDS="docker xz unzip tar sqfstar losetup"
+REQUIRED_CMDS="docker xz unzip tar sqfstar losetup ssh"
 for cmd in $REQUIRED_CMDS; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
         echo "Error: missing required command: $cmd"
@@ -260,6 +264,35 @@ EOF
 }
 
 
+# === deploy to a running target over ssh ===
+do_deploy() {
+    if [ -z "$DEPLOY_TARGET" ]; then
+        echo "Error: a SSH target (-d) must be provided."
+        usage
+        exit 1
+    fi
+    if [ -z "$BUILD_NAME" ]; then
+        echo "Error: a build name (-n) must be provided."
+        exit 1
+    fi
+
+    local archive="$OUTDIR/$BUILD_NAME.tar"
+    if [ ! -f "$archive" ]; then
+        echo "Error: output archive '$archive' not found. Export it first:"
+        echo "  $0 export -n $BUILD_NAME"
+        exit 1
+    fi
+
+    step "Deploying $archive to $DEPLOY_TARGET over SSH"
+    ssh "$DEPLOY_TARGET" 'set -e; MEDIUM=/run/live/medium;
+        sudo mount -o remount,rw "$MEDIUM";
+        sudo tar -C "$MEDIUM" -xvf - --no-same-owner --no-same-permissions' < "$archive"
+
+    step "Rebooting $DEPLOY_TARGET"
+    ssh "$DEPLOY_TARGET" "sudo systemctl reboot" || true
+}
+
+
 # === Main script ===
 
 if [ "$#" -lt 1 ]; then
@@ -270,10 +303,11 @@ fi
 COMMAND="$1"
 shift
 
-while getopts ":a:b:f:n:o:p:t:h" opt; do
+while getopts ":a:b:d:f:n:o:p:t:h" opt; do
     case "$opt" in
         a) BUILD_ARGS+=(--build-arg "$OPTARG") ;;
         b) BASE_IMAGE="$OPTARG" ;;
+        d) DEPLOY_TARGET="$OPTARG" ;;
         f) DOCKERFILE="$OPTARG" ;;
         n) BUILD_NAME="$OPTARG" ;;
         o) OUTDIR="$OPTARG" ;;
@@ -301,6 +335,7 @@ case "$COMMAND" in
     export)  do_export ;;
     rebuild) do_build; do_export ;;
     all)     do_import "$filename"; do_build; do_export ;;
+    deploy)  do_deploy ;;
     help|--help|-h) usage ;;
     *) echo "Error: unknown command '$COMMAND'."; usage; exit 1 ;;
 esac
