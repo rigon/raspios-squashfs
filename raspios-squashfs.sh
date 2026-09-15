@@ -284,12 +284,12 @@ do_deploy() {
     fi
 
     step "Deploying $archive to $DEPLOY_TARGET over SSH"
-    ssh "$DEPLOY_TARGET" 'set -e; MEDIUM=/run/live/medium;
-        sudo mount -o remount,rw "$MEDIUM";
-        sudo tar -C "$MEDIUM" -xvf - --no-same-owner --no-same-permissions' < "$archive"
-
-    step "Rebooting $DEPLOY_TARGET"
-    ssh "$DEPLOY_TARGET" "sudo systemctl reboot" || true
+    ssh "$DEPLOY_TARGET" 'set -e; MEDIUM=/run/live/medium
+        sudo mount -o remount,rw "$MEDIUM"
+        sudo tar -C "$MEDIUM" -xvf - --no-same-owner --no-same-permissions
+        sync
+        echo "Rebooting"
+        sudo systemctl reboot' < "$archive"
 }
 
 
