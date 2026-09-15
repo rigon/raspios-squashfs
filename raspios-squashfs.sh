@@ -36,21 +36,21 @@ Commands:
                                     (uses sudo to mount the image)
   build                             Build the customized image from $DOCKERFILE
   export                            Create the output archive from the image
-  deploy                            Deploy the built image to a running target over ssh
   rebuild                           build + export
   all <image.img.xz|image.zip>      import + build + export
+  deploy                            Deploy the built image to a running target over SSH
 
 Options:
-  -a <arg>       Build arg, repeatable: NAME=value, or NAME alone to take
-                 the value from the environment
-  -b <image>     Base image name (default: $BASE_IMAGE)
-  -d [user@]host Ssh target for deployment
-  -f <file>      Dockerfile to build from (default: $DOCKERFILE)
-  -n <name>      Build name (default: the image's source name)
-  -o <dir>       Output directory (default: $OUTDIR)
-  -p <file>      List of packages to install/remove (default: $PACKAGES_CONF)
-  -t <image>     Built image name (default: $IMAGE)
-  -h             Show this help
+  -a <arg>         Build arg, repeatable: NAME=value, or NAME alone to take
+                   the value from the environment
+  -b <image>       Base image name (default: $BASE_IMAGE)
+  -d <[user@]host> SSH target for deployment, also deploys after exporting
+  -f <file>        Dockerfile to build from (default: $DOCKERFILE)
+  -n <name>        Build name (default: the image's source name)
+  -o <dir>         Output directory (default: $OUTDIR)
+  -p <file>        List of packages to install/remove (default: $PACKAGES_CONF)
+  -t <image>       Built image name (default: $IMAGE)
+  -h               Show this help
 EOF
 }
 
@@ -261,6 +261,11 @@ EOF
 
     export_cleanup
     trap - EXIT
+
+    # With -d, deploy the freshly exported archive
+    if [ -n "$DEPLOY_TARGET" ]; then
+        do_deploy
+    fi
 }
 
 
