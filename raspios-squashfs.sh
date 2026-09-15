@@ -1,7 +1,7 @@
 #!/bin/bash
 # Build a read-only, squashfs-based Raspberry Pi OS image using Docker.
 #
-# Usage: ./raspios.sh <command> [options] [arguments]
+# Usage: ./raspios-squashfs.sh <command> [options] [arguments]
 #
 # Commands:
 #   import <image.img.xz|image.zip>   Import an official image as base image
