@@ -26,7 +26,7 @@ Download the OS image from the official website. Then:
 `build.sh` can be installed on `PATH` and run as a system command from any
 directory:
 
-    sudo install -m755 build.sh /usr/local/bin/raspios-squashfs
+    sudo install -m755 raspios-squashfs.sh /usr/local/bin/raspios-squashfs
     cd ~/my-pi && sudo raspios-squashfs <path_image_file>
 
 
