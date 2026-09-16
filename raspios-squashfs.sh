@@ -22,6 +22,7 @@ OUTDIR="out"                    # output directory
 PACKAGES_CONF="packages.conf"   # package changes applied during build
 BUILD_ARGS=()                   # extra --build-arg values for the build
 DEPLOY_TARGET=""
+FORCE_IMPORT=""                 # re-import even when the base image exists
 PLATFORM="linux/arm64"
 WORKDIR="/tmp/raspios-squashfs-build"
 
@@ -50,6 +51,7 @@ Options:
                    when no source file is given)
   -d <[user@]host> SSH target for deployment, also deploys after exporting
   -f <file>        Dockerfile to build from (default: $DOCKERFILE)
+  -I               Re-import the base image even when it already exists
   -n <name>        Name of the build and exported archive (default: the source filename)
   -o <dir>         Output directory (default: $OUTDIR)
   -p <file>        List of packages to install/remove (default: $PACKAGES_CONF)
@@ -90,10 +92,10 @@ do_import() {
         *) echo "Error: source image must be a .img.xz or .zip file."; exit 1 ;;
     esac
 
-    # Skip base image import if already exists
-    if docker image inspect "$BASE_IMAGE:$BASE_TAG" >/dev/null 2>&1; then
+    # Skip base image import if already exists, unless forced with -I
+    if [ -z "$FORCE_IMPORT" ] && docker image inspect "$BASE_IMAGE:$BASE_TAG" >/dev/null 2>&1; then
         step "Base image $BASE_IMAGE:$BASE_TAG already present, skipping import"
-        echo "  To re-import, remove it first: docker rmi $BASE_IMAGE:$BASE_TAG"
+        echo "  To re-import, run with -I or remove it first: docker rmi $BASE_IMAGE:$BASE_TAG"
         docker tag "$BASE_IMAGE:$BASE_TAG" "$BASE_IMAGE:latest"
         return
     fi
@@ -311,7 +313,7 @@ fi
 COMMAND="$1"
 shift
 
-while getopts ":a:b:B:d:f:n:o:p:t:h" opt; do
+while getopts ":a:b:B:d:f:n:o:p:t:hI" opt; do
     case "$opt" in
         a) BUILD_ARGS+=(--build-arg "$OPTARG") ;;
         b) BASE_IMAGE="$OPTARG" ;;
@@ -322,6 +324,7 @@ while getopts ":a:b:B:d:f:n:o:p:t:h" opt; do
         o) OUTDIR="$OPTARG" ;;
         p) PACKAGES_CONF="$OPTARG" ;;
         t) IMAGE="$OPTARG" ;;
+        I) FORCE_IMPORT=1 ;;
         h) usage; exit 0 ;;
         :) echo "Error: option -$OPTARG requires an argument."; usage; exit 1 ;;
         \?) echo "Error: unknown option -$OPTARG."; usage; exit 1 ;;
