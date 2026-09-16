@@ -5,11 +5,10 @@
 #
 # Commands:
 #   import <image.img.xz|image.zip>   Import an official image as base image
-#   build                             Build the customized image
+#   image                             Build the customized image
 #   export                            Create the output archive
+#   build <image.img.xz|image.zip>    import + image + export
 #   deploy                            Unpack the archive on a running target
-#   rebuild                           build + export
-#   all <image.img.xz|image.zip>      import + build + export
 
 set -e -o pipefail
 
@@ -37,10 +36,9 @@ Usage: $0 <command> [options] [arguments]
 Commands:
   import <image.img.xz|image.zip>   Import an official image as base image
                                     (uses sudo to mount the image)
-  build                             Build the customized image from $DOCKERFILE
+  image                             Build the customized image from $DOCKERFILE
   export                            Create the output archive from the image
-  rebuild                           build + export
-  all <image.img.xz|image.zip>      import + build + export
+  build <image.img.xz|image.zip>    Import, build docker image and export output archive
   deploy                            Deploy the built image to a running target over SSH
 
 Options:
@@ -144,7 +142,7 @@ do_import() {
 
 
 # === build customized image ===
-do_build() {
+do_image() {
     if [ -z "$BUILD_NAME" ]; then
         echo "Error: a build name (-n) must be provided."
         exit 1
@@ -213,7 +211,7 @@ do_export() {
     fi
     if ! docker image inspect "$IMAGE:$BUILD_NAME" >/dev/null 2>&1; then
         echo "Error: image '$IMAGE:$BUILD_NAME' not found. Build it first:"
-        echo "  $0 build -n $BUILD_NAME"
+        echo "  $0 image -n $BUILD_NAME"
         exit 1
     fi
 
@@ -352,10 +350,9 @@ fi
 
 case "$COMMAND" in
     import)  do_import "$filename" ;;
-    build)   do_build ;;
+    image)   do_image ;;
     export)  do_export ;;
-    rebuild) do_build; do_export ;;
-    all)     do_import "$filename"; do_build; do_export ;;
+    build)   do_import "$filename"; do_image; do_export ;;
     deploy)  do_deploy ;;
     help|--help|-h) usage ;;
     *) echo "Error: unknown command '$COMMAND'."; usage; exit 1 ;;
