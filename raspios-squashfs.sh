@@ -13,8 +13,10 @@
 
 set -e -o pipefail
 
-BASE_IMAGE="raspios-base"       # imported base image
-IMAGE="raspios"                 # customized image
+BASE_IMAGE="raspios-base"       # imported base image name
+BASE_TAG=""                     # imported base image tag
+IMAGE="raspios"                 # customized image name
+BUILD_NAME=""                   # name of the build
 DOCKERFILE="Dockerfile"         # build recipe
 OUTDIR="out"                    # output directory
 PACKAGES_CONF="packages.conf"   # package changes applied during build
@@ -44,9 +46,11 @@ Options:
   -a <arg>         Build arg, repeatable: NAME=value, or NAME alone to take
                    the value from the environment
   -b <image>       Base image name (default: $BASE_IMAGE)
+  -B <tag>         Base image tag (default: the source file name, or latest
+                   when no source file is given)
   -d <[user@]host> SSH target for deployment, also deploys after exporting
   -f <file>        Dockerfile to build from (default: $DOCKERFILE)
-  -n <name>        Build name (default: the image's source name)
+  -n <name>        Name of the build and exported archive (default: the source filename)
   -o <dir>         Output directory (default: $OUTDIR)
   -p <file>        List of packages to install/remove (default: $PACKAGES_CONF)
   -t <image>       Built image name (default: $IMAGE)
@@ -81,16 +85,16 @@ do_import() {
         echo "Error: Source image '$source' not found."
         exit 1
     fi
-    if [ -z "$BUILD_NAME" ]; then
-        echo "Error: a build name (-n) or a source file must be provided."
-        exit 1
-    fi
+    case "$source" in
+        *.img.xz|*.zip) ;;
+        *) echo "Error: source image must be a .img.xz or .zip file."; exit 1 ;;
+    esac
 
     # Skip base image import if already exists
-    if docker image inspect "$BASE_IMAGE:$BUILD_NAME" >/dev/null 2>&1; then
-        step "Base image $BASE_IMAGE:$BUILD_NAME already present, skipping import"
-        echo "  To re-import, remove it first: docker rmi $BASE_IMAGE:$BUILD_NAME"
-        docker tag "$BASE_IMAGE:$BUILD_NAME" "$BASE_IMAGE:latest"
+    if docker image inspect "$BASE_IMAGE:$BASE_TAG" >/dev/null 2>&1; then
+        step "Base image $BASE_IMAGE:$BASE_TAG already present, skipping import"
+        echo "  To re-import, remove it first: docker rmi $BASE_IMAGE:$BASE_TAG"
+        docker tag "$BASE_IMAGE:$BASE_TAG" "$BASE_IMAGE:latest"
         return
     fi
 
@@ -119,7 +123,6 @@ do_import() {
         *.zip)
             name=$(basename "$source" .zip)
             unzip -p "$source" "$name.img" > "$import_dir/$name.img" ;;
-        *) echo "Error: source image must be a .img.xz or .zip file."; exit 1 ;;
     esac
 
     step "Mounting partitions"
@@ -128,10 +131,10 @@ do_import() {
     sudo mount -o ro "${loop_device}p2" "$import_dir/rootfs/"
     sudo mount -o ro "${loop_device}p1" "$import_dir/rootfs/boot/firmware"
 
-    step "Importing as base image $BASE_IMAGE:$BUILD_NAME"
+    step "Importing as base image $BASE_IMAGE:$BASE_TAG"
     sudo tar -C "$import_dir/rootfs/" -cf - . \
-        | docker import --platform "$PLATFORM" - "$BASE_IMAGE:$BUILD_NAME"
-    docker tag "$BASE_IMAGE:$BUILD_NAME" "$BASE_IMAGE:latest"
+        | docker import --platform "$PLATFORM" - "$BASE_IMAGE:$BASE_TAG"
+    docker tag "$BASE_IMAGE:$BASE_TAG" "$BASE_IMAGE:latest"
 
     import_cleanup
     trap - EXIT
@@ -144,8 +147,8 @@ do_build() {
         echo "Error: a build name (-n) must be provided."
         exit 1
     fi
-    if ! docker image inspect "$BASE_IMAGE:$BUILD_NAME" >/dev/null 2>&1; then
-        echo "Error: base image '$BASE_IMAGE:$BUILD_NAME' not found. Import it first:"
+    if ! docker image inspect "$BASE_IMAGE:$BASE_TAG" >/dev/null 2>&1; then
+        echo "Error: base image '$BASE_IMAGE:$BASE_TAG' not found. Import it first:"
         echo "  $0 import <image.img.xz>"
         exit 1
     fi
@@ -166,7 +169,7 @@ do_build() {
         --load \
         -f - \
         . <<END_DOCKERFILE
-FROM $BASE_IMAGE:$BUILD_NAME AS base
+FROM $BASE_IMAGE:$BASE_TAG AS base
 
 # Override fstab
 RUN truncate -s 0 /etc/fstab
@@ -308,10 +311,11 @@ fi
 COMMAND="$1"
 shift
 
-while getopts ":a:b:d:f:n:o:p:t:h" opt; do
+while getopts ":a:b:B:d:f:n:o:p:t:h" opt; do
     case "$opt" in
         a) BUILD_ARGS+=(--build-arg "$OPTARG") ;;
         b) BASE_IMAGE="$OPTARG" ;;
+        B) BASE_TAG="$OPTARG" ;;
         d) DEPLOY_TARGET="$OPTARG" ;;
         f) DOCKERFILE="$OPTARG" ;;
         n) BUILD_NAME="$OPTARG" ;;
@@ -326,12 +330,21 @@ done
 shift $((OPTIND - 1))
 
 filename="$1"
+source_name=""
+case "$filename" in
+    *.img.xz) source_name=$(basename "$filename" .img.xz) ;;
+    *.zip)    source_name=$(basename "$filename" .zip) ;;
+esac
+source_name="${source_name//[^A-Za-z0-9_.-]/_}"
+
+if [ -z "$BASE_TAG" ]; then
+    BASE_TAG="$source_name"
+fi
+if [ -z "$BASE_TAG" ]; then
+    BASE_TAG="latest"
+fi
 if [ -z "$BUILD_NAME" ]; then
-    case "$filename" in
-        *.img.xz) BUILD_NAME=$(basename "$filename" .img.xz) ;;
-        *.zip)    BUILD_NAME=$(basename "$filename" .zip) ;;
-    esac
-    BUILD_NAME="${BUILD_NAME//[^A-Za-z0-9_.-]/_}"
+    BUILD_NAME="$source_name"
 fi
 
 case "$COMMAND" in
